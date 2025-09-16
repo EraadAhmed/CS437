@@ -1,0 +1,110 @@
+(footprint "Sunfounder_Photointerrupter"
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(property "Reference" "photoint_sunfounder1"
+		(at 0 5.5 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "233e460e-b4c5-4768-ac0f-1db725b79edd")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+		)
+	)
+	(property "Value" "sunfounder_photinterrupter"
+		(at 0 -1.5 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "b1adb6ac-3c5e-4b9a-9dc8-2347ddf03fe2")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "245e653a-c940-4821-975f-09c1406dec66")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "9722e366-4e62-4d4d-8950-695dc93dc232")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(fp_rect
+		(start -1 -10.5)
+		(end 1 -8.5)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(fill no)
+		(layer "B.CrtYd")
+		(uuid "f5544114-3e28-4071-99bf-99afdec41725")
+	)
+	(fp_rect
+		(start -1.75 -12.5)
+		(end 1.75 1.5)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "d692f701-f700-4824-9b0c-df26f0b11806")
+	)
+	(fp_text user "CS437 Sunfounder Photointerrupter"
+		(at 0 2.5 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "24520025-7081-4dc1-8096-63fecbb436c1")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "GND" smd circle
+		(at 0 -0.5)
+		(size 1.905 1.905)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "33f635c8-f8a0-4940-b64e-da3cfc0fa384")
+	)
+	(pad "SIG" smd circle
+		(at 0 -5.5)
+		(size 1.905 1.905)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "41a91caa-e61b-4cc4-9567-f8bb89fe5930")
+	)
+	(pad "Vcc" smd circle
+		(at 0 -3)
+		(size 1.905 1.905)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "2b75b208-fa70-481f-b3d8-fc07f0bc006e")
+	)
+	(embedded_fonts no)
+)

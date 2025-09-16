@@ -1,0 +1,5 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "project_footprints")(type "KiCad")(uri "$(KIPRJMOD)/project_footprints.pretty")(options "")(descr ""))
+  (lib (name "CS437")(type "KiCad")(uri "${KIPRJMOD}/CS437.pretty")(options "")(descr ""))
+)

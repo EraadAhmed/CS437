@@ -1,0 +1,230 @@
+(footprint "DC_MOTOR"
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(property "Reference" "REF**"
+		(at 0 -0.5 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "718ceaee-ec3d-4b8d-ba7a-59385fe2de61")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+		)
+	)
+	(property "Value" "DC_MOTOR"
+		(at 0 1 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "08595e8c-232d-41d0-b4a3-b3edc6ec95ee")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "1d2b9ed5-4a58-40ba-bd7b-2edd51bbc04e")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "a32a5d74-57f6-427e-9258-48ea97c47351")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(fp_line
+		(start 0 -3)
+		(end 8.5 -5)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "71e2f283-d381-48ee-a7a5-ae27f2e9cdb7")
+	)
+	(fp_line
+		(start 7.5 -1.697224)
+		(end 8 -3)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "bc0fafcd-1e3c-4cba-ab0e-f1f86d00e9d0")
+	)
+	(fp_line
+		(start 7.5 -1.697224)
+		(end 8.5 -0.5)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "af6f0efb-e9c5-4121-a3a7-f4f69188bee5")
+	)
+	(fp_line
+		(start 8.5 -0.5)
+		(end 7.499998 -1.697226)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "7af009ba-f834-4a7a-9986-ef0e349ffdf0")
+	)
+	(fp_rect
+		(start -5 -6)
+		(end 5 0)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(fill no)
+		(layer "F.SilkS")
+		(uuid "59afeff3-8fac-4e21-8f87-fd96c709f128")
+	)
+	(fp_arc
+		(start 8.5 -5)
+		(mid 9.225422 -2.977584)
+		(end 7.5 -1.697224)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "94d203f2-187b-4ead-8ef5-f31f4e1132d3")
+	)
+	(fp_circle
+		(center 0 -3)
+		(end 1.5 -3)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(fill no)
+		(layer "F.SilkS")
+		(uuid "71da73a6-c53a-4379-872e-c56c9f3bf86b")
+	)
+	(fp_line
+		(start 0 -3)
+		(end 8.5 -5)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(layer "F.CrtYd")
+		(uuid "76153083-860a-4f0d-a4f5-7766794fd972")
+	)
+	(fp_line
+		(start 7.5 -1.697225)
+		(end 8.5 -0.5)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(layer "F.CrtYd")
+		(uuid "02fe603b-fc42-4085-9b55-228b3efcc2d9")
+	)
+	(fp_line
+		(start 7.5 -1.697224)
+		(end 8 -3)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(layer "F.CrtYd")
+		(uuid "383c49ba-ff44-4b53-a71f-f58bf327b16e")
+	)
+	(fp_line
+		(start 8 -3)
+		(end 7.5 -1.697224)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(layer "F.CrtYd")
+		(uuid "7e8eb9c2-3b87-4cbb-99e2-825517ad9243")
+	)
+	(fp_rect
+		(start -5 -6)
+		(end 5 0)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "613e7537-dd3a-4ff9-8e59-39bfe836bb55")
+	)
+	(fp_arc
+		(start 8.5 -5)
+		(mid 9.225422 -2.977584)
+		(end 7.5 -1.697224)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(layer "F.CrtYd")
+		(uuid "d4d56be2-7a7f-4d66-bea1-37baf868ab40")
+	)
+	(fp_circle
+		(center 0 -3)
+		(end 1 -2)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "872bbde7-5047-440f-a4a2-0d240f4c2605")
+	)
+	(fp_text user "CS437 DC 3777 Motor"
+		(at 0 2.5 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "7c8e82b1-d795-403d-830d-3e8bb152cf92")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" smd roundrect
+		(at -1 -5.5)
+		(size 1.905 1.27)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.15)
+		(uuid "5588b309-3332-4501-9f1e-4fe69c8adfc6")
+	)
+	(pad "2" smd roundrect
+		(at 1 -5.5)
+		(size 1.905 1.27)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.15)
+		(uuid "4860fa95-9fd7-4d22-a143-f9b9a4b01082")
+	)
+	(embedded_fonts no)
+)

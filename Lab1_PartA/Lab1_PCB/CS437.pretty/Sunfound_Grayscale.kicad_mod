@@ -1,0 +1,193 @@
+(footprint "Sunfound_Grayscale"
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(property "Reference" "REF**"
+		(at 0 -0.5 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "3aac99d0-0264-4fd4-befa-60f481af3a4f")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+		)
+	)
+	(property "Value" "Sunfound_Grayscale"
+		(at 0 1 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "6a55e838-5f72-49b4-bfc7-baf9e7327f16")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "c33f42f2-357c-403c-8561-6f5ca10dd9d1")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "7fe66fc9-7a44-4488-8a9d-a00d716fe6d3")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(fp_rect
+		(start -13.75 -8)
+		(end 13.75 0)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(fill no)
+		(layer "F.SilkS")
+		(uuid "2dd895a4-20e5-4a3c-abff-812cfce0d8be")
+	)
+	(fp_circle
+		(center -10 -4)
+		(end -8.5 -4)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(fill no)
+		(layer "Margin")
+		(uuid "8b2a6015-752e-4a0e-84a6-e890648d9409")
+	)
+	(fp_circle
+		(center 0 -4)
+		(end 1.5 -4)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(fill no)
+		(layer "Margin")
+		(uuid "7861b3be-141c-4c78-8f0a-4f52774048b2")
+	)
+	(fp_circle
+		(center 10 -4)
+		(end 11.5 -4)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(fill no)
+		(layer "Margin")
+		(uuid "fe4be025-4dc9-41ff-8e9e-f9b660d848f3")
+	)
+	(fp_rect
+		(start -13.75 -8)
+		(end 13.75 0)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "5d075ae1-01b5-4ce4-a021-df2532d689c1")
+	)
+	(fp_circle
+		(center -10 -4)
+		(end -8.5 -4.5)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "27b114f3-af4c-4ec9-956a-8cf7819d38f4")
+	)
+	(fp_circle
+		(center 0 -4)
+		(end 1.5 -3.5)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "31fd5d04-39da-433e-8a76-b3ded3ab9cb4")
+	)
+	(fp_circle
+		(center 10 -4)
+		(end 11 -5)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "5ae7a020-e0d9-4752-b8e5-0b6093ba5fcc")
+	)
+	(fp_text user "CS437 Sunfounder Grayscale Module"
+		(at 0 2.5 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "050b011d-2144-41ce-ae10-9fe9d215a9ce")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "3V3" smd roundrect
+		(at 2 -7.5)
+		(size 1.905 1.27)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.15)
+		(uuid "e9de71ab-a8e4-404b-a2e6-3d5a53a4e132")
+	)
+	(pad "GND" smd roundrect
+		(at 4 -7.5)
+		(size 1.905 1.27)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.15)
+		(uuid "d420d190-eb7f-4681-8da8-9e6eb055092a")
+	)
+	(pad "S0" smd roundrect
+		(at 0 -7.5)
+		(size 1.905 1.27)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.15)
+		(uuid "1c3272e7-f13b-4bca-ba39-5bd240698b09")
+	)
+	(pad "S1" smd roundrect
+		(at -2 -7.5)
+		(size 1.905 1.27)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.15)
+		(uuid "a562cdc9-27e4-49c3-9e85-d8c2cfc24d97")
+	)
+	(pad "S2" smd roundrect
+		(at -4 -7.5)
+		(size 1.905 1.27)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(roundrect_rratio 0.15)
+		(uuid "7c73e12e-fbc5-4f61-a210-3b4b40250605")
+	)
+	(embedded_fonts no)
+)
