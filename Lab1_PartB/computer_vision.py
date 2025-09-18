@@ -3,98 +3,109 @@ from picamera2 import Picamera2
 from picarx import Picarx
 import time
 
-WIDTH = 117
-HEIGHT = 380
-X_MID = 53.5
-MAX_reading = 100
-SPEED = 10
-
+#PHYSICAL CONSTANTS
+WIDTH = 120 #width of map
+LENGTH = 380 #length of map
+X_MID = 60 #midpoint on x axis
 CAR_Width = 14
 CAR_Length = 23
 
+width_scaled = WIDTH/5
+length_scaled = LENGTH/5
+x_mid_scaled = int(width_scaled/2)
+CAR_Width_scaled = int(np.ceil(CAR_Width/5))
+CAR_Length_scaled = int(np.ceil(CAR_Length/5))
 
+#vehicle positioning constants
+MAX_READ = 100 #max ultrasonic reading considered for mapping to be 1 
+MAXREAD_SCALED = MAX_READ/5
+SPEED = 10 #cm/sec
+POWER = 40 #0-100
+delta_t = 0.25 #1 cm / velocity 
+SafeDistance = 25 #in cm
+DangerDistance = 10 #in cm
 
-map = np.zeros((WIDTH, HEIGHT)) #makes a 2d grid
-start_pos = (X_MID-1, 0)
-end_pos = (X_MID-1, HEIGHT-1)
+#Start and End CONSTANTS
+start_pos = (x_mid_scaled-1, 0)
+end_pos = (x_mid_scaled-1, length_scaled-1)
+
+#changing fields
+map = np.zeros((width_scaled, length_scaled)) #makes a 2d grid scaled at 5cm^2 per cell
 current_pos = start_pos
+heading_angle = 0
 
+class Car:
+    def __init__(self, position, width, length, heading_angle, delta ):
+        self.state = state        # (x, y, theta)
+        self.g = g                # cost from start
+        self.h = h                # heuristic to goal
+        self.parent = parent      # backpointer
+    def f(self):
+        return self.g + self.h
 
 def calibrate(picarx, current_pos, map):
     #calibrate positioning of ultrasonic sensor relative velocity
-    
     angle = -60
     while angle <= 60:
         time.sleep(0.1)
-        picarx.set_cam_pan_angle(angle)
-        reading = picarx.ultrasonic.read()
+        picarx.set_cam_pan_angle(angle) 
+        reading = int(picarx.ultrasonic.read()) #gets distance reading in cm
+        reading =  int(np.ceil(reading / 5.0) * 5) #scales it toto nearest divisible by 5
         time.sleep(0.01)
-        if angle == 0 and reading <= MAX_reading:
-            map[current_pos[0]][(reading-1)+current_pos[1]] = 1
+        if angle == 0 and reading <= MAXREAD_SCALED:
+            map[current_pos[0]][reading+current_pos[1]] = 1
         elif angle < 0:
-            if(reading <= current_pos[0]/np.cos(angle) and reading <= MAX_reading):
-                object_xval = int(current_pos[0] - reading*np.cos(angle))
-                object_yval = int(current_pos[1] + reading*np.sin(np.abs(angle)))
+            if(reading <= current_pos[0]/np.cos(angle) and reading <= MAXREAD_SCALED):
+                object_xval = int(current_pos[0] - reading*np.cos(np.radians(angle)))
+                object_yval = int(current_pos[1] + reading*np.sin(np.radians(np.abs(angle))))
                 map[object_xval][object_yval] = 1
         elif angle > 0:
-            if(reading <= (WIDTH - current_pos[0])/np.cos(angle) and reading <= MAX_reading):
-                object_xval = int(current_pos[0] + reading*np.cos(angle))
-                object_yval = int(current_pos[1] + reading*np.sin(np.abs(angle)))
+            if(reading <= (WIDTH - current_pos[0])/np.cos(angle) and reading <= MAXREAD_SCALED):
+                object_xval = int(current_pos[0] + reading*np.cos(np.radians(angle)))
+                object_yval = int(current_pos[1] + reading*np.sin(np.abs(np.radians(angle))))
                 map[object_xval][object_yval] = 1
-        angle += 10
+        
+        angle += 5
     picarx.set_cam_pan_angle(0)
     return map
 
-import time
-import numpy as np
 
-def ultrasonic_pan_loop(picarx, current_pos, map_grid, MAX_reading=100, WIDTH=200):
+
+def ultrasonic_pan_loop(picarx, current_pos, map_grid, MAXREAD, WIDTH):
     """
     Continuously pan ultrasonic sensor between -60 and +60 degrees.
     Updates map_grid with detected objects.
     If a detected cell is already occupied, updates current_pos instead.
     """
     angle = -60
-    direction = 10   # step size (positive = sweeping right, negative = sweeping left)
+    direction = 5   # step size (positive = sweeping right, negative = sweeping left)
 
     while True:   # keep running while car is on
         time.sleep(0.1)
         picarx.set_cam_pan_angle(angle)
-        reading = picarx.ultrasonic.read()
+        reading = picarx.ultrasonic.read() #gets distance reading in cm
+        reading =  int(np.ceil(reading / 5.0) * 5) #scales it toto nearest divisible by 5
         time.sleep(0.01)
 
         object_xval, object_yval = None, None
 
         # --- Straight ahead ---
-        if angle == 0 and reading <= MAX_reading:
+        if angle == 0 and reading <= MAXREAD:
             object_xval = current_pos[0]
             object_yval = (reading - 1) + current_pos[1]
 
         # --- Left side (< 0) ---
         elif angle < 0:
-            if reading <= current_pos[0]/np.cos(np.radians(angle)) and reading <= MAX_reading:
+            if reading <= current_pos[0]/np.cos(np.radians(angle)) and reading <= MAXREAD:
                 object_xval = int(current_pos[0] - reading * np.cos(np.radians(angle)))
                 object_yval = int(current_pos[1] + reading * np.sin(np.radians(abs(angle))))
 
         # --- Right side (> 0) ---
         elif angle > 0:
-            if reading <= (WIDTH - current_pos[0])/np.cos(np.radians(angle)) and reading <= MAX_reading:
+            if reading <= (WIDTH - current_pos[0])/np.cos(np.radians(angle)) and reading <= MAXREAD:
                 object_xval = int(current_pos[0] + reading * np.cos(np.radians(angle)))
                 object_yval = int(current_pos[1] + reading * np.sin(np.radians(abs(angle))))
-
-        # # --- If we got valid coordinates ---
-        # if object_xval is not None and object_yval is not None:
-        #     try:
-        #         if map_grid[object_xval][object_yval] == 1:
-        #             # Already marked → treat as localization update
-        #             current_pos = [object_xval, object_yval]
-        #         else:
-        #             # Mark obstacle
-        #             map_grid[object_xval][object_yval] = 1
-        #     except IndexError:
-        #         # Skip if out of map bounds
-        #         pass doesnt work 
-
+                
         # --- Update angle sweep direction ---
         angle += direction
         if angle >= 60 or angle <= -60:
@@ -102,20 +113,51 @@ def ultrasonic_pan_loop(picarx, current_pos, map_grid, MAX_reading=100, WIDTH=20
 
     # Reset pan angle when loop breaks (if ever)
     picarx.set_cam_pan_angle(0)
-    return map_grid, current_pos
+    return map_grid, current_pos   
+
 
 def car_pixels(map, current_pos):
-    for i in range(int(current_pos[0]-CAR_Width/2), int(current_pos[0]+CAR_Width/2)):
-        for j in range(int(current_pos[1]), int(current_pos[1]+CAR_Length)):
-            map[i][j] = 2 #denotes its the car
+    for i in range(int(current_pos[0]-CAR_Width_scaled/2), int(current_pos[0]+CAR_Width_scaled/2)):
+        for j in range(int(current_pos[1]-CAR_Length_scaled), int(current_pos[1])):
+            if(j >= 0 and j < LENGTH):
+                map[i][j] = 2 #denotes its the car
     return map
 
-def location_update(picarx, current_pos):
-    #updates the current position of the car
-    distance = picarx.ultrasonic.read()
-    if distance > 20:
-        current_pos = (current_pos[0], current_pos[1] + SPEED)
-    return current_pos
+
+
+
+
+def update_position(current_pos, velocity, heading_angle, dt, steer_angle):
+    """
+    Update position based on velocity and heading.
+    current_pos: [x, y]
+    velocity: units/sec (e.g. cm/sec)
+    heading_angle: radians (0 = facing east, pi/2 = north)
+    dt: time since last update
+    """
+    d = velocity * dt
+    beta = d  * np.tan(steer_angle)/ CAR_Length  # angular change
+    if np.abs(beta) < 0.001: #straight line approx
+        dx = int(d * np.cos(heading_angle))
+        dy = int(d * np.sin(heading_angle))
+    else:
+        R = d / beta  # radius of curvature
+        dx = int(R * np.sin(heading_angle + beta))
+        dy = int(-1*R * np.cos(heading_angle + beta))
+    new_x = current_pos[0] + dx
+    new_y = current_pos[1] + dy
+    
+    heading_angle = (heading_angle + beta) % (2 * np.pi)  # Normalize angle
+    return [new_x, new_y], heading_angle
+
+def boundary_check(current_pos, WIDTH=WIDTH, LENGTH=LENGTH):
+    if current_pos[0]+(CAR_Width/2) >= WIDTH:
+        return False
+    elif current_pos[0]-(CAR_Width/2) < 0:
+        return False
+    else: 
+        return True
+    
 
 
 
@@ -137,7 +179,7 @@ def main():
             else:
                 px.set_dir_servo_angle(-30)
                 px.backward(POWER)
-                time.sleep(0.5)
+                time.sleep(0.1)
 
     finally:
         px.forward(0)
