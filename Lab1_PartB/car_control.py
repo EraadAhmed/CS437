@@ -15,7 +15,7 @@ MAX_READ = 100 #max ultrasonic reading considered for mapping to be 1
 MAXREAD_SCALED = MAX_READ/5
 SPEED = 10 #cm/sec
 POWER = 40 #0-100
-delta_t = 0.25 #1 cm / velocity 
+delta_t = 0.25 #5 cm / velocity 
 SafeDistance = 25 #in cm
 DangerDistance = 10 #in cm
 
@@ -30,38 +30,48 @@ class Coordinate:
     def f(self):
         return self.g + self.h
 
-def heuristic(state1, state2):
+def cost(state1, state2):
     p1 = np.array(state1[:2])  # take (x, y)
     p2 = np.array(state2[:2])
     return np.linalg.norm(p1 - p2)
 
-def hybrid_a_star(start_state, goal_state, map):
+def reconstruct_path(node):
+    path = []
+    while node is not None:
+        path.append(node.state)
+        node = node.parent
+    return list(reversed(path))
+
+def hybrid_a_star(start_state, final_state, map):
     open = PriorityQueue()
     closed = []
-    h_start = heuristic(start_state, goal_state)
-    start_node = Coordinate(start_state, 0, h= h_start, parent=None)
-    
-    open.put(start_node)
-    while open:
-        current_node = open.get()
-        if current_node.state[:2] == goal_state[:2]:
+    g_start = 0
+    g_cost_key = {}
+    h_start = cost(start_state, final_state)
+    start_node = Coordinate(start_state, g_start, h= h_start, parent=None)
+    g_cost_key[start_state] = g_start
+    open.put((start_node.f(), start_node))
+    while not open.empty():
+        current_f , current_node = open.get()
+        if current_node.state[:2] == final_state[:2]:
             return path(current_node)
-        closed.append(current_node)
+        closed.append(current_node.state)
         for control in [-60, -50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60]:  # e.g., steering angles, velocities
-            next_node = next_state_gen(current_node.state, )
+            next_state = next_state_gen(current_node.state,SPEED, delta_t, control)
+            if collision_check(next_state, map):
+                continue
 
-            # if COLLISION(next_state, map):
-            #     continue
+            next_g = current_node.g + cost(current_node.state, next_state)
+            next_h = cost(next_state, final_state)
+            
 
-            # next_g ← current_node.g + cost(current_node.state, next_state)
-            # next_h ← heuristic(next_state, goal_state)
-            # next_node ← Node(state=next_state, g=next_g, h=next_h, parent=current_node)
+            if next_state in closed:
+                continue
 
-            # if discretize(next_state) ∈ closed_list:
-            #     continue
-
-            # if not open_list.contains_better(next_node):
-            #     open_list.push(next_node)
+            if (next_state not in g_cost_key) or (next_g < g_cost_key[next_state]):
+                g_cost_key[next_state] = next_g
+                next_node = Coordinate(next_state, next_g, next_h, parent= current_node)
+                open.put((next_node.f,next_node))
 
     raise RuntimeError("Hybrid A* failed: no path found")
 #copilot generated below:
@@ -116,50 +126,20 @@ def next_state_gen(current_state, velocity, dt, steer_angle):
     new_y = current_state[1] + dy
     
     new_head_angle = (current_state[2] + beta) % (2 * np.pi)  # Normalize angle
+
     return (new_x, new_y, new_head_angle)
 
-################################################################################
-#  PsuedoCode for A star algorithm
-# function HYBRID_A_STAR(start_state, goal_state, map):
-#     open_list ← priority queue ordered by f = g + h
-#     closed_list ← empty set
+def collision_check(state, grid):
+    x, y, theta = state
     
-
-#     start_node ← Node(state=start_state, g=0, h=heuristic(start_state, goal_state), parent=null)
-#     open_list.push(start_node)
-
-#     while open_list is not empty:
-#         current_node ← open_list.pop_lowest_f()
-
-#         if is_goal(current_node.state, goal_state):
-#             return RECONSTRUCT_PATH(current_node)
-
-#         closed_list.add(discretize(current_node.state))
-
-#         for control in feasible_controls:  # e.g., steering angles, velocities
-#             next_state ← MOTION_MODEL(current_node.state, control)
-
-#             if COLLISION(next_state, map):
-#                 continue
-
-#             next_g ← current_node.g + cost(current_node.state, next_state)
-#             next_h ← heuristic(next_state, goal_state)
-#             next_node ← Node(state=next_state, g=next_g, h=next_h, parent=current_node)
-
-#             if discretize(next_state) ∈ closed_list:
-#                 continue
-
-#             if not open_list.contains_better(next_node):
-#                 open_list.push(next_node)
-
-#     raise RuntimeError("Hybrid A* failed: no path found")
-###############################################################################
+    # Make sure it's inside the map
+    if not (0 <= x < grid.shape[0] and 0 <= y < grid.shape[1]):
+        return True   # outside map = collision
+    
+    # Check occupancy
+    if grid[x, y] == 1:
+        return True   # obstacle
+    
+    return False
 
 
-
-function RECONSTRUCT_PATH(node):
-    path ← empty list
-    while node ≠ null:
-        path.prepend(node.state)
-        node ← node.parent
-    return path
