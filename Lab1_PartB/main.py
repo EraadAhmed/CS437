@@ -17,14 +17,14 @@ from car_control import hybrid_a_star, reconstruct_path
 WIDTH = 24 
 LENGTH = 76 
 X_MID = 12 
-CAR_Width = int(np.ceil(15/5))
-CAR_Length = int(np.ceil(23/5))
+CAR_Width = int(np.ceil(14/5)*5)
+CAR_Length = int(np.ceil(23/5)*5)
 
 #vehicle positioning constants also scaled for fitting with 25 cm^2 unit grid
-MAX_READ = 20 #max ultrasonic reading considered for mapping to be 1 
-SPEED = 10 #5 cm/sec
-POWER = 40 #will be the value that gives us 5 cm a second 
-delta_t = 0.25 #time needed to move 5cm 
+MAX_READ = 100 #wont change since we will convert x and y in post processing
+SPEED = 10 #changes these values
+POWER = 40 #changes these values
+delta_t = 0.25 #changes these values
 
 
 #Start and End CONSTANTS
