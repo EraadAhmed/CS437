@@ -3,27 +3,6 @@ from picamera2 import Picamera2
 from picarx import Picarx
 import time
 
-#PHYSICAL CONSTANTS
-WIDTH = 120 #width of map
-LENGTH = 380 #length of map
-X_MID = 60 #midpoint on x axis
-CAR_Width = 14
-CAR_Length = 23
-
-width_scaled = WIDTH/5
-length_scaled = LENGTH/5
-x_mid_scaled = int(width_scaled/2)
-CAR_Width_scaled = int(np.ceil(CAR_Width/5))
-CAR_Length_scaled = int(np.ceil(CAR_Length/5))
-
-#vehicle positioning constants
-MAX_READ = 100 #max ultrasonic reading considered for mapping to be 1 
-MAXREAD_SCALED = MAX_READ/5
-SPEED = 10 #cm/sec
-POWER = 40 #0-100
-delta_t = 0.25 #1 cm / velocity 
-SafeDistance = 25 #in cm
-DangerDistance = 10 #in cm
 
 #Start and End CONSTANTS
 start_pos = (x_mid_scaled-1, 0)
@@ -34,14 +13,6 @@ map = np.zeros((width_scaled, length_scaled)) #makes a 2d grid scaled at 5cm^2 p
 current_pos = start_pos
 heading_angle = 0
 
-class Car:
-    def __init__(self, position, width, length, heading_angle, delta ):
-        self.state = state        # (x, y, theta)
-        self.g = g                # cost from start
-        self.h = h                # heuristic to goal
-        self.parent = parent      # backpointer
-    def f(self):
-        return self.g + self.h
 
 def calibrate(picarx, current_pos, map):
     #calibrate positioning of ultrasonic sensor relative velocity
@@ -52,15 +23,15 @@ def calibrate(picarx, current_pos, map):
         reading = int(picarx.ultrasonic.read()) #gets distance reading in cm
         reading =  int(np.ceil(reading / 5.0) * 5) #scales it toto nearest divisible by 5
         time.sleep(0.01)
-        if angle == 0 and reading <= MAXREAD_SCALED:
+        if angle == 0 and reading <= MAXREAD:
             map[current_pos[0]][reading+current_pos[1]] = 1
         elif angle < 0:
-            if(reading <= current_pos[0]/np.cos(angle) and reading <= MAXREAD_SCALED):
+            if(reading <= current_pos[0]/np.cos(angle) and reading <= MAXREAD):
                 object_xval = int(current_pos[0] - reading*np.cos(np.radians(angle)))
                 object_yval = int(current_pos[1] + reading*np.sin(np.radians(np.abs(angle))))
                 map[object_xval][object_yval] = 1
         elif angle > 0:
-            if(reading <= (WIDTH - current_pos[0])/np.cos(angle) and reading <= MAXREAD_SCALED):
+            if(reading <= (WIDTH - current_pos[0])/np.cos(angle) and reading <= MAXREAD):
                 object_xval = int(current_pos[0] + reading*np.cos(np.radians(angle)))
                 object_yval = int(current_pos[1] + reading*np.sin(np.abs(np.radians(angle))))
                 map[object_xval][object_yval] = 1

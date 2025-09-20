@@ -44,7 +44,7 @@ def reconstruct_path(node):
 
 def hybrid_a_star(start_state, final_state, map):
     open = PriorityQueue()
-    closed = []
+    closed = set()
     g_start = 0
     g_cost_key = {}
     h_start = cost(start_state, final_state)
