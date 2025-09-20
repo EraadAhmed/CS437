@@ -76,7 +76,7 @@ def boundary_check(state, WIDTH, Car_Width):
     
 
 
-def hybrid_a_star(start_state, final_state, map, WIDTH, Car_Width, SPEED, delta_t):
+async def hybrid_a_star(start_state, final_state, map, WIDTH, Car_Width, SPEED, delta_t):
     open = PriorityQueue()
     closed = set()
     g_start = 0
@@ -88,7 +88,7 @@ def hybrid_a_star(start_state, final_state, map, WIDTH, Car_Width, SPEED, delta_
     while not open.empty():
         current_f , current_node = open.get()
         if current_node.state[:2] == final_state[:2]:
-            return path(current_node)
+            return reconstruct_path(current_node)
         closed.append(current_node.state)
         for control in [-60, -50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60]:  # e.g., steering angles, velocities
             next_state = next_state_gen(current_node.state,SPEED, delta_t, control)
