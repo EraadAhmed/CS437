@@ -1,0 +1,66 @@
+function HYBRID_A_STAR(start_state, goal_state, grid):
+
+    open_list ← priority queue (min-heap) ordered by f = g + h
+    closed_list ← empty set
+    g_cost ← empty map   # maps state → best g found so far
+
+    start_node.g = 0
+    start_node.h = heuristic(start_state, goal_state)
+    start_node.f = start_node.g + start_node.h
+    start_node.parent = null
+
+    g_cost[start_state] = 0
+    open_list.push((start_node.f, start_node))
+
+    while open_list is not empty:
+
+        current_node ← open_list.pop_lowest_f()
+
+        # --- Goal check ---
+        if current_node.position == goal_state.position:
+            if angle_close_enough(current_node.theta, goal_state.theta):
+                return RECONSTRUCT_PATH(current_node)
+
+        closed_list.add(current_node.state)
+
+        # --- Expand neighbors ---
+        for control in feasible_controls:       # e.g. steering = -15, 0, +15
+            next_state ← MOTION_MODEL(current_node.state, control)
+
+            if COLLISION(next_state, grid):
+                continue
+
+            new_g = current_node.g + cost(current_node.state, next_state)
+
+            if next_state in closed_list:
+                continue
+
+            if next_state not in g_cost OR new_g < g_cost[next_state]:
+                g_cost[next_state] = new_g
+                next_h = heuristic(next_state, goal_state)
+                next_node = Node(state=next_state,
+                                 g=new_g, h=next_h,
+                                 parent=current_node)
+                open_list.push((next_node.f, next_node))
+
+    return FAILURE   # no path found
+
+
+function RECONSTRUCT_PATH(node):
+    path ← empty list
+    while node ≠ null:
+        path.prepend(node.state)
+        node ← node.parent
+    return path
+
+
+function MOTION_MODEL(state, control):
+    # Applies robot kinematics for one step
+    # For car-like robot: bicycle model
+    # For your setup: (x, y, θ) update with steering increments
+    return next_state
+
+
+function COLLISION(state, grid):
+    # Returns true if state lies in obstacle cell or outside map
+    return (blocked or out_of_bounds)
