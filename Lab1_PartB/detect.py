@@ -25,7 +25,10 @@ import utils
 # [ADDED] classes we watch for a "halt" reaction
 WATCH_CLASSES = {"stop sign", "person"}
 
-# [ADDED] safe halt hook (wire to picar_4wd when ready)
+# Safely halts the robot (if available) for a fixed duration.
+# Attempts to stop motors via picar_4wd; if unavailable, just sleeps.
+# Args:
+#   seconds: Duration to remain halted.
 def safe_halt(seconds=2.0):
   try:
     from picar_4wd import fc  # only works on the Pi with the car
@@ -35,7 +38,19 @@ def safe_halt(seconds=2.0):
     # dev machine / no car connected — just wait
     time.sleep(seconds)
 
-
+# Runs a throttled TFLite object detector on live camera frames and visualizes results.
+# Also triggers a temporary HALT when selected classes (e.g., stop sign/person) are detected.
+# Args:
+#   model: Path to .tflite model file.
+#   camera_id: OpenCV camera index.
+#   width: Capture width in pixels.
+#   height: Capture height in pixels.
+#   num_threads: CPU threads for TFLite inference.
+#   enable_edgetpu: If True, attempts EdgeTPU delegate.
+#   period_s: Minimum seconds between inferences (throttles detector rate).
+#   score_threshold: Minimum confidence to draw/report detections and HALT.
+# Returns:
+#   None. Displays annotated frames until ESC is pressed.
 def run(model: str, camera_id: int, width: int, height: int, num_threads: int,
         enable_edgetpu: bool,
         period_s: float,            # [ADDED] throttle period (~1 FPS)
@@ -148,7 +163,9 @@ def run(model: str, camera_id: int, width: int, height: int, num_threads: int,
   cap.release()
   cv2.destroyAllWindows()
 
-
+# CLI entrypoint for the object detection demo.
+# Parses arguments (model path, camera params, CPU threads, EdgeTPU flag,
+# inference throttle period, and score threshold) and invokes `run()`.
 def main():
   parser = argparse.ArgumentParser(
       formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -208,3 +225,4 @@ def main():
 
 if __name__ == '__main__':
   main()
+
