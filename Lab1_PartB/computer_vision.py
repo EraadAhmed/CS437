@@ -5,6 +5,7 @@ import time
 
 
 
+
 def calibrate(picarx, current_pos, map, MAXREAD, WIDTH):
     #calibrate positioning of ultrasonic sensor relative velocity
     angle = -60
@@ -34,46 +35,47 @@ def calibrate(picarx, current_pos, map, MAXREAD, WIDTH):
 
 
 
-async def ultrasonic_pan_loop(picarx, current_pos, map_grid, MAXREAD, WIDTH):
+async def ultrasonic_pan_loop(picarx, current_pos, map_grid, MAXREAD, WIDTH, LENGTH, sampling):
     """
     Continuously pan ultrasonic sensor between -60 and +60 degrees.
     Updates map_grid with detected objects.
     If a detected cell is already occupied, updates current_pos instead.
     """
-    angle = -60
-    direction = 5   # step size (positive = sweeping right, negative = sweeping left)
-
+    angle = 75
+    direction = 2   # step size (positive = sweeping right, negative = sweeping left)
+    pan_angle = 80
     while True:   # keep running while car is on
         time.sleep(0.1)
         picarx.set_cam_pan_angle(angle)
         reading = picarx.ultrasonic.read() #gets distance reading in cm
-        time.sleep(0.01)
+        zero = np.nonzero(map_grid)
+        print(angle, reading, list(zip(*zero)))
+        time.sleep(current_pos[0]/np.cos(np.radians(angle))/343)
 
         object_xval, object_yval = None, None
 
         # --- Straight ahead ---
-        if angle == 0 and reading <= MAXREAD:
-            object_xval = current_pos[0]
-            reading_0 =  int(np.ceil(reading / 5.0) * 5) #scales it toto nearest divisible by 5
-            object_yval = (reading_0) + current_pos[1]
+        if 0 < reading <= MAXREAD:
+            if angle == 0:
+                object_xval = current_pos[0]
+                reading_0 =  int(np.ceil(reading / 5.0)) #scales it toto nearest divisible by 5
+                object_yval = (reading_0) + current_pos[1]
+                if object_yval < LENGTH:
+                    print("tuple: ", (object_xval, object_yval), end="\n\n\n\n")
+                    map_grid[object_xval][object_yval] = 1
 
-        # --- Left side (< 0) ---
-        elif angle < 0:
-            if reading <= current_pos[0]/np.cos(np.radians(angle)) and reading <= MAXREAD:
-                object_xval = int(np.ceil((current_pos[0] - reading * np.cos(np.radians(angle)))/5)*5)
-                object_yval = int(np.ceil((current_pos[1] + reading * np.sin(np.radians(abs(angle))))/5)*5)
+            # --- Left side (< 0)  or right side (>0) ---
+            else:
+                object_xval = int(np.ceil((current_pos[0] + int(np.sign(angle)) * reading * np.sin(np.radians(90-angle)))/sampling)) # np.sign will decide to add to subtract from the x coord
+                object_yval = int(np.ceil((current_pos[1] + reading * np.sin(np.radians(90 - abs(angle))))/sampling))
+                if (0 <= object_xval < WIDTH and 0 <= object_yval < LENGTH):
+                    print("tuple: ", (object_xval, object_yval), end="\n\n\n\n")
+                    map_grid[object_xval][object_yval] = 1
 
-        # --- Right side (> 0) ---
-        elif angle > 0:
-            if reading <= (WIDTH - current_pos[0])/np.cos(np.radians(angle)) and reading <= MAXREAD:
-                object_xval = int(np.ceil((current_pos[0] + reading * np.cos(np.radians(angle)))/5)*5)
-                object_yval = int(np.ceil((current_pos[1] + reading * np.sin(np.radians(abs(angle))))/5)*5)
-                
-
-        map[object_xval][object_yval] = 1
+            print(object_xval, object_yval)
         # --- Update angle sweep direction ---
         angle += direction
-        if angle >= 60 or angle <= -60:
+        if angle >= pan_angle or angle <= -1*pan_angle:
             direction *= -1   # reverse sweep direction
 
     # Reset pan angle when loop breaks (if ever)
@@ -81,21 +83,28 @@ async def ultrasonic_pan_loop(picarx, current_pos, map_grid, MAXREAD, WIDTH):
     return map_grid, current_pos   
 
 
-async def car_pixels(map, current_pos,Car_Width, Car_Length, LENGTH):
+async def car_pixels(map_grid, current_pos,Car_Width, Car_Length, LENGTH):
     for i in range(int(current_pos[0]-Car_Width/2), int(current_pos[0]+Car_Width/2)):
         for j in range(int(current_pos[1]-Car_Length), int(current_pos[1])):
             if(j >= 0 and j < LENGTH):
-                map[i][j] = 2 #denotes its the car
-    return map
+                map_grid[i][j] = 2 #denotes its the car
+    return map_grid
 
-async def print_map(map, WIDTH, LENGTH):
+async def print_map(map_grid, WIDTH, LENGTH):
     for i in range(WIDTH):
         for j in range(LENGTH):
-            if map[i][j] == 0:
+            if map_grid[i][j] == 0:
                 print(".", end=" ")
-            elif map[i][j] == 1:
+            elif map_grid[i][j] == 1:
                 print("X", end=" ")
-            elif map[i][j] == 2:
+            elif map_grid[i][j] == 2:
                 print("C", end=" ")
         print()
     print()
+
+if __name__ == "__main__":
+	import asyncio
+	picar = Picarx(servo_pins=["P0", "P1", "P3"])
+	map_ = np.zeros((40, 35))
+	current_pos = (20, 0)
+	asyncio.run(ultrasonic_pan_loop(picar, current_pos, map_, 50, 40, 35, 1))
