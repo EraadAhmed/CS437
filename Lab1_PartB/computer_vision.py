@@ -20,6 +20,10 @@ MAXREAD = 50 #wont change since we will convert x and y in post processing
 SAMPLING = 1 #everything scaled down by factor of 5
 
 
+    #Performs a one-time ultrasonic sensor sweep from -60° to +60°.
+    #Updates the occupancy grid (map_grid) with detected obstacle positions 
+    #based on current car position. Returns the updated map.
+    
 def calibrate(picarx, current_pos, map_grid):
     #calibrate positioning of ultrasonic sensor relative velocity
     picarx.set_cam_pan_angle(angle)
@@ -62,7 +66,9 @@ def calibrate(picarx, current_pos, map_grid):
     return map
 
 
-
+  #Continuously sweeps the ultrasonic sensor left and right between -pan_angle and +pan_angle.
+    #Reads distances, converts them into grid coordinates, and updates map_grid.
+    #Runs indefinitely while the car is on. Also updates current_pos if needed.
 async def ultrasonic_pan_loop(picarx, current_pos, map_grid):
     """
     Continuously pan ultrasonic sensor between -60 and +60 degrees.
@@ -113,8 +119,11 @@ async def ultrasonic_pan_loop(picarx, current_pos, map_grid):
     picarx.set_cam_pan_angle(0)
     time.sleep(3)
     return map_grid, current_pos   
-
-
+ 
+    #Marks the area occupied by the car on the occupancy grid.
+    #Uses CAR_WIDTH and CAR_LENGTH (scaled by SAMPLING) to determine which cells 
+    #are filled with the 'car' marker (value = 2). Returns updated map_grid.
+    
 async def car_pixels(map_grid, current_pos):
     samp_car_width = int(np.ceil(CAR_WIDTH/SAMPLING))
     samp_car_length = int(np.ceil(CAR_LENGTH/SAMPLING))
@@ -123,7 +132,11 @@ async def car_pixels(map_grid, current_pos):
             if(j >= 0 and j < LENGTH/SAMPLING):
                 map_grid[i][j] = 2 #denotes its the car
     return map_grid
-
+  #Prints a visual representation of the occupancy grid.
+    #Symbols:
+        #'.' = empty cell
+        #'X' = detected obstacle
+        #'C' = car position/footprint
 async def print_map(map_grid):
     samp_width = int(np.ceil(WIDTH/SAMPLING))
     samp_length = int(np.ceil(LENGTH/SAMPLING))
@@ -137,7 +150,12 @@ async def print_map(map_grid):
                 print("C", end=" ")
         print()
     print()
-
+  #Program entry point.
+   # - Initializes Picarx hardware.
+    #- Creates an empty occupancy grid.
+    #- Sets the car's starting position at the map midpoint.
+    #- Runs calibration sweep.
+    #- Prints the resulting map.
 if __name__ == "__main__":
     import asyncio
     picar = Picarx(servo_pins=["P0", "P1", "P3"])
