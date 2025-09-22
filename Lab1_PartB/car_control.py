@@ -97,7 +97,7 @@ async def hybrid_a_star(start_state, final_state, map, WIDTH, Car_Width, SPEED, 
         if current_node.state[:2] == final_state[:2]:
             return reconstruct_path(current_node)
         closed.add(current_node.state)
-        for control in [-60, -50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60]:  # e.g., steering angles, velocities
+        for control in [-45, -30, -15, 0, 15, 30, 45]:  # Reduced from 13 to 7 steering angles
             next_state = next_state_gen(current_node.state,SPEED, delta_t, control, Car_Length)
             if collision_check(next_state, map) and boundary_check(next_state, WIDTH, Car_Width):
                 continue

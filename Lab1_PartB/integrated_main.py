@@ -36,9 +36,12 @@ class IntegratedSelfDrivingSystem:
         self.SAMPLING = 1  # 1cm per grid unit
         
         # Car control constants
-        self.SPEED = 10
+        self.SPEED = 30.5  # Refined speed calibration: was 26.3, but car went 440cm instead of 380cm
         self.POWER = 40
-        self.DELTA_T = 0.25
+        self.DELTA_T = 0.5  # Increased from 0.25 to make larger steps
+        
+        # Servo calibration - adjust this if car drifts left/right when going "straight"
+        self.SERVO_OFFSET = -2  # Reduced from -3 since car drifted slightly left
         
         # Initialize positions - start at beginning middle, goal 380cm forward
         self.start_pos = Coordinate((60, 0, 0))   # Middle of 120cm width, at 0cm length
@@ -157,9 +160,22 @@ class IntegratedSelfDrivingSystem:
             self.map_grid[object_y][object_x] = 1  # Obstacle
 
     async def _plan_path(self):
-        """Plan path from current position to goal using Hybrid A*."""
+        """Plan path from current position to goal."""
         try:
-            logging.info("Planning path...")
+            # Check if this is a simple straight-line case
+            if (abs(self.current_pos[0] - self.goal_pos.state[0]) < 5 and  # Same X lane (within 5cm)
+                self.current_pos[1] < self.goal_pos.state[1]):             # Moving forward in Y
+                
+                logging.info("Using simple straight-line path planning")
+                path = self._plan_straight_line_path()
+                if path:
+                    self.planned_path = path
+                    self.path_index = 0
+                    logging.info(f"Straight-line path planned with {len(path)} waypoints")
+                    return True
+            
+            # Use full Hybrid A* for complex paths
+            logging.info("Using Hybrid A* path planning")
             
             # Inflate obstacles for safety
             inflated_map = self._inflate_obstacles(self.map_grid)
@@ -188,6 +204,23 @@ class IntegratedSelfDrivingSystem:
         except Exception as e:
             logging.error(f"Path planning failed: {e}")
             return False
+
+    def _plan_straight_line_path(self):
+        """Create a simple straight-line path for simple cases."""
+        path = []
+        current_y = self.current_pos[1]
+        goal_y = self.goal_pos.state[1]
+        x = self.current_pos[0]  # Stay in same lane
+        
+        # Create waypoints every 50 units
+        step_size = 50
+        y = current_y
+        
+        while y < goal_y:
+            y = min(y + step_size, goal_y)
+            path.append((x, y, 0))  # (x, y, theta)
+            
+        return path
 
     def _inflate_obstacles(self, map_grid, inflation_radius=2):
         """Inflate obstacles to account for car width."""
@@ -218,9 +251,24 @@ class IntegratedSelfDrivingSystem:
         
         if distance > 1:  # Only move if significant distance
             # Calculate required heading
-            # Note: using dy, dx (not dx, dy) to match kinematic model
-            # where theta=0 is East (positive X) and theta=pi/2 is North (positive Y)
-            target_heading = np.arctan2(dy, dx)
+            # COORDINATE SYSTEM: X=left/right, Y=forward/backward
+            # For forward motion (positive dy), heading should be 0
+            # For rightward motion (positive dx), heading should be -pi/2  
+            if abs(dx) < 1:  # Moving straight forward/backward
+                if dy > 0:
+                    target_heading = 0  # Forward
+                else:
+                    target_heading = np.pi  # Backward
+            elif abs(dy) < 1:  # Moving straight left/right
+                if dx > 0:
+                    target_heading = -np.pi/2  # Right
+                else:
+                    target_heading = np.pi/2   # Left
+            else:
+                # Diagonal movement - use standard arctan2 but swap coordinates
+                # to match our coordinate system (Y=forward, X=right)
+                target_heading = np.arctan2(-dx, dy)  # Note: -dx because right is negative angle
+            
             heading_error = target_heading - current_theta
             
             # Normalize heading error
@@ -232,11 +280,15 @@ class IntegratedSelfDrivingSystem:
             # Execute turn if needed
             if abs(heading_error) > 0.1:  # 0.1 radians ~ 6 degrees
                 turn_angle = np.degrees(heading_error)
+                logging.info(f"Executing turn: {turn_angle:.1f}° (heading error: {np.degrees(heading_error):.1f}°)")
                 await self._turn_car(turn_angle)
                 self.current_pos = (current_x, current_y, target_heading)
+            else:
+                logging.info(f"No turn needed (heading error: {np.degrees(heading_error):.1f}°, target: {np.degrees(target_heading):.1f}°)")
             
             # Execute forward motion
             move_time = distance / self.SPEED  # Time in seconds
+            logging.info(f"Moving forward: distance={distance:.1f}cm, time={move_time:.1f}s, power={self.POWER}")
             await self._move_forward(move_time)
             
             # Update position based on actual movement (more realistic)
@@ -244,10 +296,11 @@ class IntegratedSelfDrivingSystem:
             # update based on the distance we attempted to move
             actual_distance_moved = self.SPEED * move_time / self.SAMPLING  # Convert back to grid units
             
-            # Calculate actual new position based on heading (matching kinematic model)
-            # theta=0 is East (positive X), theta=pi/2 is North (positive Y)
-            new_x = current_x + actual_distance_moved * np.cos(target_heading)
-            new_y = current_y + actual_distance_moved * np.sin(target_heading)
+            # Calculate actual new position based on our coordinate system
+            # COORDINATE SYSTEM: X=left/right, Y=forward/backward, heading=0 is forward
+            # heading=0 → forward (+Y), heading=pi/2 → left (+X), heading=-pi/2 → right (-X)
+            new_x = current_x + actual_distance_moved * np.sin(target_heading)   # Left/right movement
+            new_y = current_y + actual_distance_moved * np.cos(target_heading)   # Forward/backward movement
             
             # Update to realistic position (not perfect target)
             self.current_pos = (int(round(new_x)), int(round(new_y)), target_heading)
@@ -260,21 +313,25 @@ class IntegratedSelfDrivingSystem:
         """Turn car by specified angle."""
         # Convert angle to servo angle and duration
         if angle_degrees > 0:  # Turn right
-            self.picarx.set_dir_servo_angle(30)
+            self.picarx.set_dir_servo_angle(30 + self.SERVO_OFFSET)
         else:  # Turn left
-            self.picarx.set_dir_servo_angle(-30)
+            self.picarx.set_dir_servo_angle(-30 + self.SERVO_OFFSET)
         
         # Move forward briefly to execute turn
         self.picarx.forward(self.POWER)
         await asyncio.sleep(abs(angle_degrees) / 90 * 0.5)  # Rough timing
         self.picarx.stop()
         
-        # Return steering to center
-        self.picarx.set_dir_servo_angle(0)
-        await asyncio.sleep(0.1)
+        # Return steering to center with calibration offset
+        self.picarx.set_dir_servo_angle(self.SERVO_OFFSET)
+        await asyncio.sleep(0.2)  # Extra time for servo to fully center
 
     async def _move_forward(self, duration):
         """Move car forward for specified duration."""
+        # Ensure steering is centered with calibration offset
+        self.picarx.set_dir_servo_angle(self.SERVO_OFFSET)
+        await asyncio.sleep(0.1)  # Give servo time to center
+        
         self.picarx.forward(self.POWER)
         await asyncio.sleep(duration)
         self.picarx.stop()
@@ -301,23 +358,45 @@ class IntegratedSelfDrivingSystem:
         """Monitor object detection results."""
         while not self.stop_event.is_set():
             if self.object_detector.is_halt_needed():
-                logging.warning("Safety object detected - initiating halt")
+                # Check what specific objects were detected
+                detection_result = self.object_detector.get_latest_detection()
+                stop_sign_detected = False
+                
+                if detection_result and 'detections' in detection_result:
+                    for detection in detection_result['detections']:
+                        if 'stop_sign' in detection['class_name'].lower():
+                            stop_sign_detected = True
+                            logging.info("STOP SIGN DETECTED - Initiating stop and recalibration")
+                            break
+                
+                if stop_sign_detected:
+                    logging.warning("STOP SIGN: Stopping for recalibration")
+                else:
+                    logging.warning("Safety object detected - initiating halt")
+                
                 self.halt_duration = time.time()
                 
                 # Stop car immediately
                 self.picarx.stop()
                 
-                # Wait for object to clear or timeout
-                while (self.object_detector.is_halt_needed() and 
-                       time.time() - self.halt_duration < self.max_halt_time and
-                       not self.stop_event.is_set()):
-                    await asyncio.sleep(0.1)
-                
-                if time.time() - self.halt_duration >= self.max_halt_time:
-                    logging.warning("Halt timeout reached - attempting recovery")
-                    await self._recovery_maneuver()
+                # If stop sign, perform recalibration
+                if stop_sign_detected:
+                    await asyncio.sleep(2.0)  # Stop for 2 seconds at stop sign
+                    logging.info("Performing stop sign recalibration scan...")
+                    await self._perform_calibration_scan()
+                    logging.info("Recalibration complete - resuming")
                 else:
-                    logging.info("Safety object cleared - resuming")
+                    # Wait for other objects to clear or timeout
+                    while (self.object_detector.is_halt_needed() and 
+                           time.time() - self.halt_duration < self.max_halt_time and
+                           not self.stop_event.is_set()):
+                        await asyncio.sleep(0.1)
+                    
+                    if time.time() - self.halt_duration >= self.max_halt_time:
+                        logging.warning("Halt timeout reached - attempting recovery")
+                        await self._recovery_maneuver()
+                    else:
+                        logging.info("Safety object cleared - resuming")
                 
                 self.halt_duration = 0
             
@@ -327,13 +406,39 @@ class IntegratedSelfDrivingSystem:
         """Simple recovery maneuver when blocked."""
         logging.info("Executing recovery maneuver")
         
+        current_x, current_y, current_theta = self.current_pos
+        
         # Back up slightly
+        logging.info("Recovery: Backing up 1 second")
         self.picarx.backward(self.POWER)
         await asyncio.sleep(1)
         self.picarx.stop()
         
-        # Turn 45 degrees
-        await self._turn_car(45)
+        # Update position for backup (assume ~20cm backward)
+        backup_distance = 20  # cm, approximate
+        backup_distance_grid = backup_distance / self.SAMPLING
+        
+        # Move backward in current heading direction
+        new_x = current_x - backup_distance_grid * np.sin(current_theta)
+        new_y = current_y - backup_distance_grid * np.cos(current_theta)
+        
+        logging.info(f"Recovery: Updated position after backup: ({current_x}, {current_y}) -> ({new_x:.0f}, {new_y:.0f})")
+        
+        # Turn 45 degrees right to avoid obstacle
+        turn_angle = 45
+        # COORDINATE SYSTEM: positive angle = right turn, negative = left turn
+        # heading: 0 = forward, pi/2 = left, -pi/2 = right, pi = backward
+        new_theta = (current_theta + np.radians(turn_angle)) % (2 * np.pi)  # Add for right turn
+        
+        logging.info(f"Recovery: Turning {turn_angle}° right")
+        await self._turn_car(turn_angle)
+        
+        # Update position with new heading
+        self.current_pos = (int(round(new_x)), int(round(new_y)), new_theta)
+        logging.info(f"Recovery: Position after turn: {self.current_pos}")
+        
+        # Update car position in map
+        await self._update_car_position()
         
         # Force replan
         self.last_replan_time = 0
