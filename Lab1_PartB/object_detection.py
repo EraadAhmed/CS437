@@ -227,8 +227,8 @@ class ObjectDetector:
                 self.inference_time = time.time() - start_time
                 self._update_fps()
                 
-                # Control detection rate (~1 FPS as specified)
-                time.sleep(max(0, 1.0 - self.inference_time))
+                # Control detection rate (~5 FPS for better obstacle avoidance)
+                time.sleep(max(0, 0.2 - self.inference_time))
                 
             except Exception as e:
                 logging.error(f"Detection loop error: {e}")

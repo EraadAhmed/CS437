@@ -3,17 +3,28 @@
 Analyze the speed calibration issue
 """
 
+# Global constants for speed calibration analysis
+EXPECTED_DISTANCE = 380  # cm - target navigation distance
+ACTUAL_DISTANCE = 500    # cm - measured actual distance
+CURRENT_SPEED = 20       # cm/s - assumed speed setting
+POWER_SETTING = 40       # % - motor power percentage
+STANDARD_STEP_DISTANCE = 50  # cm - standard movement step
+FINAL_STEP_DISTANCE = 30     # cm - final movement step
+TOTAL_STEPS = 8              # number of movement steps
+LONG_STEPS = 7               # number of 50cm steps
+SHORT_STEPS = 1              # number of 30cm steps
+
 def analyze_speed_problem():
     """Analyze why car went 500cm instead of 380cm"""
     
     print("=== Speed Calibration Analysis ===")
     print()
     
-    # Current system parameters
-    expected_distance = 380  # cm
-    actual_distance = 500    # cm
-    current_speed = 20       # cm/s (our assumption)
-    power = 40              # %
+    # Use global constants instead of magic numbers
+    expected_distance = EXPECTED_DISTANCE
+    actual_distance = ACTUAL_DISTANCE
+    current_speed = CURRENT_SPEED
+    power = POWER_SETTING
     
     print(f"Expected distance: {expected_distance} cm")
     print(f"Actual distance: {actual_distance} cm")
@@ -22,13 +33,13 @@ def analyze_speed_problem():
     
     # Calculate what the actual speed must be
     print("=== Movement Analysis ===")
-    print("The car made 8 movements:")
-    print("- 7 movements of 50cm each = 350cm")
-    print("- 1 movement of 30cm = 30cm")
-    print("- Total expected = 380cm")
+    print(f"The car made {TOTAL_STEPS} movements:")
+    print(f"- {LONG_STEPS} movements of {STANDARD_STEP_DISTANCE}cm each = {LONG_STEPS * STANDARD_STEP_DISTANCE}cm")
+    print(f"- {SHORT_STEPS} movement of {FINAL_STEP_DISTANCE}cm = {FINAL_STEP_DISTANCE}cm")
+    print(f"- Total expected = {LONG_STEPS * STANDARD_STEP_DISTANCE + SHORT_STEPS * FINAL_STEP_DISTANCE}cm")
     print()
     
-    print("But actual distance was ~500cm")
+    print(f"But actual distance was ~{actual_distance}cm")
     print(f"Speed error factor: {actual_distance/expected_distance:.2f}")
     print()
     
@@ -42,19 +53,19 @@ def analyze_speed_problem():
     print(f"To travel exactly {expected_distance}cm, we need:")
     
     corrected_speed = actual_speed  # Use the real speed
-    corrected_time_50cm = 50 / corrected_speed
-    corrected_time_30cm = 30 / corrected_speed
+    corrected_time_50cm = STANDARD_STEP_DISTANCE / corrected_speed
+    corrected_time_30cm = FINAL_STEP_DISTANCE / corrected_speed
     
     print(f"SPEED = {corrected_speed:.1f}  # Real speed at {power}% power")
-    print(f"Time for 50cm: {corrected_time_50cm:.2f}s (was 2.5s)")
-    print(f"Time for 30cm: {corrected_time_30cm:.2f}s (was 1.5s)")
+    print(f"Time for {STANDARD_STEP_DISTANCE}cm: {corrected_time_50cm:.2f}s (was 2.5s)")
+    print(f"Time for {FINAL_STEP_DISTANCE}cm: {corrected_time_30cm:.2f}s (was 1.5s)")
     print()
     
     # Alternative: reduce movement distance per step
     print("=== Alternative: Reduce Step Distance ===")
-    target_step_distance = 50 * (expected_distance / actual_distance)
-    print(f"Or reduce step size from 50cm to {target_step_distance:.1f}cm")
-    print(f"This would give {380/target_step_distance:.1f} steps instead of 8")
+    target_step_distance = STANDARD_STEP_DISTANCE * (expected_distance / actual_distance)
+    print(f"Or reduce step size from {STANDARD_STEP_DISTANCE}cm to {target_step_distance:.1f}cm")
+    print(f"This would give {expected_distance/target_step_distance:.1f} steps instead of {TOTAL_STEPS}")
 
 if __name__ == "__main__":
     analyze_speed_problem()

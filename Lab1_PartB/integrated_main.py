@@ -286,25 +286,37 @@ class IntegratedSelfDrivingSystem:
             else:
                 logging.info(f"No turn needed (heading error: {np.degrees(heading_error):.1f}°, target: {np.degrees(target_heading):.1f}°)")
             
-            # Execute forward motion
+            # Execute forward motion with obstacle checking
             move_time = distance / self.SPEED  # Time in seconds
             logging.info(f"Moving forward: distance={distance:.1f}cm, time={move_time:.1f}s, power={self.POWER}")
-            await self._move_forward(move_time)
             
-            # Update position based on actual movement (more realistic)
-            # Instead of assuming perfect movement to target_state, 
-            # update based on the distance we attempted to move
-            actual_distance_moved = self.SPEED * move_time / self.SAMPLING  # Convert back to grid units
+            movement_start_time = time.time()
+            movement_completed = await self._move_forward(move_time)
+            actual_move_time = time.time() - movement_start_time
+            
+            # Calculate actual distance moved based on how long we actually moved
+            if movement_completed:
+                actual_distance_moved = self.SPEED * move_time / self.SAMPLING  # Full distance
+                logging.info(f"Movement completed successfully")
+            else:
+                actual_distance_moved = self.SPEED * actual_move_time / self.SAMPLING  # Partial distance
+                logging.warning(f"Movement interrupted after {actual_move_time:.1f}s - traveled ~{actual_distance_moved*self.SAMPLING:.1f}cm")
             
             # Calculate actual new position based on our coordinate system
             # COORDINATE SYSTEM: X=left/right, Y=forward/backward, heading=0 is forward
-            # heading=0 → forward (+Y), heading=pi/2 → left (+X), heading=-pi/2 → right (-X)
-            new_x = current_x + actual_distance_moved * np.sin(target_heading)   # Left/right movement
+            # heading=0 → forward (+Y), heading=pi/2 → left (-X), heading=-pi/2 → right (+X)
+            # CORRECTED FORMULA: X increases when heading is negative (right turns)
+            new_x = current_x - actual_distance_moved * np.sin(target_heading)   # Left/right movement (FIXED)
             new_y = current_y + actual_distance_moved * np.cos(target_heading)   # Forward/backward movement
             
             # Update to realistic position (not perfect target)
             self.current_pos = (int(round(new_x)), int(round(new_y)), target_heading)
             await self._update_car_position()
+            
+            # If movement was interrupted, trigger obstacle handling
+            if not movement_completed:
+                logging.info("Movement interrupted - will handle obstacle in next cycle")
+                return False  # Indicate that we didn't reach the target
             
             # Log the movement for debugging
             logging.info(f"Moved from ({current_x}, {current_y}) to {self.current_pos[:2]}, target was ({target_x}, {target_y})")
@@ -327,14 +339,33 @@ class IntegratedSelfDrivingSystem:
         await asyncio.sleep(0.2)  # Extra time for servo to fully center
 
     async def _move_forward(self, duration):
-        """Move car forward for specified duration."""
+        """Move car forward for specified duration with continuous obstacle checking."""
         # Ensure steering is centered with calibration offset
         self.picarx.set_dir_servo_angle(self.SERVO_OFFSET)
         await asyncio.sleep(0.1)  # Give servo time to center
         
+        # Start moving
         self.picarx.forward(self.POWER)
-        await asyncio.sleep(duration)
+        
+        # Move in small increments, checking for obstacles frequently
+        move_increment = 0.2  # Check every 0.2 seconds
+        elapsed_time = 0
+        
+        while elapsed_time < duration and not self.stop_event.is_set():
+            # Check for obstacles
+            if self.object_detector.is_halt_needed():
+                logging.warning("OBSTACLE DETECTED during movement - immediate stop!")
+                self.picarx.stop()
+                return False  # Indicate movement was interrupted
+            
+            # Sleep for increment
+            sleep_time = min(move_increment, duration - elapsed_time)
+            await asyncio.sleep(sleep_time)
+            elapsed_time += sleep_time
+        
+        # Stop the car
         self.picarx.stop()
+        return True  # Indicate movement completed successfully
 
     async def _continuous_mapping(self):
         """Continuous ultrasonic mapping in background."""
@@ -355,9 +386,13 @@ class IntegratedSelfDrivingSystem:
             await asyncio.sleep(0.1)
 
     async def _object_detection_monitor(self):
-        """Monitor object detection results."""
+        """Monitor object detection results with immediate response."""
         while not self.stop_event.is_set():
             if self.object_detector.is_halt_needed():
+                # IMMEDIATE STOP - don't wait for movement to finish
+                self.picarx.stop()
+                logging.warning("EMERGENCY STOP: Object detected!")
+                
                 # Check what specific objects were detected
                 detection_result = self.object_detector.get_latest_detection()
                 stop_sign_detected = False
@@ -371,36 +406,19 @@ class IntegratedSelfDrivingSystem:
                 
                 if stop_sign_detected:
                     logging.warning("STOP SIGN: Stopping for recalibration")
-                else:
-                    logging.warning("Safety object detected - initiating halt")
-                
-                self.halt_duration = time.time()
-                
-                # Stop car immediately
-                self.picarx.stop()
-                
-                # If stop sign, perform recalibration
-                if stop_sign_detected:
-                    await asyncio.sleep(2.0)  # Stop for 2 seconds at stop sign
+                    # Stop for 2 seconds at stop sign
+                    await asyncio.sleep(2.0)
                     logging.info("Performing stop sign recalibration scan...")
                     await self._perform_calibration_scan()
                     logging.info("Recalibration complete - resuming")
                 else:
-                    # Wait for other objects to clear or timeout
-                    while (self.object_detector.is_halt_needed() and 
-                           time.time() - self.halt_duration < self.max_halt_time and
-                           not self.stop_event.is_set()):
-                        await asyncio.sleep(0.1)
-                    
-                    if time.time() - self.halt_duration >= self.max_halt_time:
-                        logging.warning("Halt timeout reached - attempting recovery")
-                        await self._recovery_maneuver()
-                    else:
-                        logging.info("Safety object cleared - resuming")
+                    logging.warning("OBSTACLE: Initiating immediate backup and avoidance")
+                    # Immediate backup to avoid collision
+                    await self._emergency_backup_and_avoid()
                 
                 self.halt_duration = 0
             
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)  # Check every 50ms for very fast response
 
     async def _recovery_maneuver(self):
         """Simple recovery maneuver when blocked."""
@@ -419,16 +437,16 @@ class IntegratedSelfDrivingSystem:
         backup_distance_grid = backup_distance / self.SAMPLING
         
         # Move backward in current heading direction
-        new_x = current_x - backup_distance_grid * np.sin(current_theta)
-        new_y = current_y - backup_distance_grid * np.cos(current_theta)
+        new_x = current_x + backup_distance_grid * np.sin(current_theta)  # CORRECTED: backup reverses direction
+        new_y = current_y - backup_distance_grid * np.cos(current_theta)  # CORRECTED: backup reverses direction
         
         logging.info(f"Recovery: Updated position after backup: ({current_x}, {current_y}) -> ({new_x:.0f}, {new_y:.0f})")
         
         # Turn 45 degrees right to avoid obstacle
         turn_angle = 45
-        # COORDINATE SYSTEM: positive angle = right turn, negative = left turn
-        # heading: 0 = forward, pi/2 = left, -pi/2 = right, pi = backward
-        new_theta = (current_theta + np.radians(turn_angle)) % (2 * np.pi)  # Add for right turn
+        # COORDINATE SYSTEM: 0=forward, -pi/2=right, pi/2=left, pi=backward
+        # Right turn = subtract angle (clockwise from forward)
+        new_theta = (current_theta - np.radians(turn_angle)) % (2 * np.pi)
         
         logging.info(f"Recovery: Turning {turn_angle}° right")
         await self._turn_car(turn_angle)
@@ -441,6 +459,54 @@ class IntegratedSelfDrivingSystem:
         await self._update_car_position()
         
         # Force replan
+        self.last_replan_time = 0
+
+    async def _emergency_backup_and_avoid(self):
+        """Emergency backup when obstacle detected, with position tracking."""
+        logging.info("EMERGENCY: Backing up to avoid collision")
+        
+        current_x, current_y, current_theta = self.current_pos
+        
+        # Immediate backup for 1 second
+        self.picarx.backward(self.POWER)
+        await asyncio.sleep(1.0)
+        self.picarx.stop()
+        
+        # Update position for emergency backup (~30cm)
+        backup_distance = 30  # cm, more aggressive backup
+        backup_distance_grid = backup_distance / self.SAMPLING
+        
+        # Move backward in current heading direction
+        new_x = current_x + backup_distance_grid * np.sin(current_theta)  # Reverse direction
+        new_y = current_y - backup_distance_grid * np.cos(current_theta)  # Reverse direction
+        
+        logging.info(f"Emergency backup: ({current_x}, {current_y}) -> ({new_x:.0f}, {new_y:.0f})")
+        
+        # Wait for obstacle to clear or perform avoidance maneuver
+        await asyncio.sleep(1.0)  # Brief pause
+        
+        # Check if obstacle is still there
+        if self.object_detector.is_halt_needed():
+            logging.warning("Obstacle still present - performing avoidance turn")
+            
+            # Turn 45 degrees right to avoid obstacle
+            turn_angle = 45
+            new_theta = (current_theta - np.radians(turn_angle)) % (2 * np.pi)  # Right turn
+            
+            await self._turn_car(turn_angle)
+            
+            # Update position with new heading
+            self.current_pos = (int(round(new_x)), int(round(new_y)), new_theta)
+            logging.info(f"Emergency avoidance complete: position {self.current_pos}")
+        else:
+            # Just update position from backup
+            self.current_pos = (int(round(new_x)), int(round(new_y)), current_theta)
+            logging.info("Obstacle cleared after backup")
+        
+        # Update car position in map
+        await self._update_car_position()
+        
+        # Force replan from new position
         self.last_replan_time = 0
 
     async def main_control_loop(self):
