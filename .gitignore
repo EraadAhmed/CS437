@@ -1,0 +1,8 @@
+**/__pycache__/
+
+*.tflite
+*.tfrecord
+/tflite_models/
+/tflite_build/
+/cmake-build-debug/
+/build/
