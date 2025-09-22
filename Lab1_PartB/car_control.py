@@ -58,11 +58,11 @@ def collision_check(state, grid):
     x, y, theta = state
     
     # Make sure it's inside the map
-    if not (0 <= x < grid.shape[0] and 0 <= y < grid.shape[1]):
+    if not (0 <= y < grid.shape[0] and 0 <= x < grid.shape[1]):
         return True   # outside map = collision
     
     # Check occupancy
-    if grid[x, y] == 1:
+    if grid[y, x] == 1:
         return True   # obstacle
     
     return False
@@ -91,9 +91,9 @@ async def hybrid_a_star(start_state, final_state, map, WIDTH, Car_Width, SPEED, 
         current_f , current_node = open.get()
         if current_node.state[:2] == final_state[:2]:
             return reconstruct_path(current_node)
-        closed.append(current_node.state)
+        closed.add(current_node.state)
         for control in [-60, -50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60]:  # e.g., steering angles, velocities
-            next_state = next_state_gen(current_node.state,SPEED, delta_t, control)
+            next_state = next_state_gen(current_node.state,SPEED, delta_t, control, Car_Length)
             if collision_check(next_state, map) and boundary_check(next_state, WIDTH, Car_Width):
                 continue
 
@@ -107,7 +107,7 @@ async def hybrid_a_star(start_state, final_state, map, WIDTH, Car_Width, SPEED, 
             if (next_state not in g_cost_key) or (next_g < g_cost_key[next_state]):
                 g_cost_key[next_state] = next_g
                 next_node = Coordinate(next_state, next_g, next_h, parent= current_node)
-                open.put((next_node.f,next_node))
+                open.put((next_node.f(),next_node))
 
     raise RuntimeError("Hybrid A* failed: no path found")
 
