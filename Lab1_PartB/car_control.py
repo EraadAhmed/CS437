@@ -14,8 +14,13 @@ class Coordinate:
         self.g = g                # cost from start
         self.h = h                # heuristic to goal
         self.parent = parent      # backpointer
+    
     def f(self):
         return self.g + self.h
+    
+    def __lt__(self, other):
+        """Less than comparison for priority queue"""
+        return self.f() < other.f()
 # Euclidean distance between two (x, y) positions used as motion cost/heuristic.
 def cost(state1, state2):
     p1 = np.array(state1[:2])  # take (x, y)
@@ -78,7 +83,7 @@ def boundary_check(state, WIDTH, Car_Width):
 
 # Hybrid A* planner: searches over (x, y, theta) with simple kinematics.
 # Returns a path (list of states) from start_state to final_state or raises on failure.
-async def hybrid_a_star(start_state, final_state, map, WIDTH, Car_Width, SPEED, delta_t):
+async def hybrid_a_star(start_state, final_state, map, WIDTH, Car_Width, SPEED, delta_t, Car_Length):
     open = PriorityQueue()
     closed = set()
     g_start = 0

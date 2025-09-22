@@ -3,6 +3,7 @@ from picamera2 import Picamera2
 from picarx import Picarx
 import time
 import sys, asyncio
+from threading import Event
 #PHYSICAL Realworld Constants (not used)
 # Width = 120 cm
 # Length = 380 cm
@@ -20,7 +21,7 @@ MAXREAD = 100 #wont change since we will convert x and y in post processing
 SAMPLING = 1 #everything scaled down by factor of 5
 
 
-def calibrate(picarx, current_pos, map_grid):
+async def calibrate(picarx, current_pos, map_grid):
     #calibrate positioning of ultrasonic sensor relative velocity
     await asyncio.sleep(0.5)
     picarx.set_cam_pan_angle(0)
@@ -71,7 +72,7 @@ def calibrate(picarx, current_pos, map_grid):
 
 
 
-async def ultrasonic_pan_loop(picarx, current_pos, map_grid):
+async def ultrasonic_pan_loop(picarx, current_pos, map_grid, stop_event):
     """
     Continuously pan ultrasonic sensor between -60 and +60 degrees.
     Updates map_grid with detected objects.
@@ -138,7 +139,7 @@ async def car_pixels(map_grid, current_pos, stop_event):
         await asyncio.sleep(0.1)
 
 
-async def print_map(map_grid):
+async def print_map(map_grid, stop_event):
     while not stop_event.is_set():
         sys.stdout.write("\033[H")  # Move cursor to top-left
         height, width = map_grid.shape

@@ -9,8 +9,8 @@ import logging
 from threading import Event
 
 from picarx import Picarx
-from computer_vision import ultrasonic_pan_loop, car_pixels, print_map
-from car_control import hybrid_a_star
+# from computer_vision import ultrasonic_pan_loop, car_pixels, print_map  # Not used in this implementation
+from car_control import hybrid_a_star, Coordinate
 from object_detection import ObjectDetector
 
 # Set up logging
@@ -27,22 +27,22 @@ class IntegratedSelfDrivingSystem:
     
     def __init__(self):
         # Physical constants (from your existing code)
-        self.WIDTH = 60
-        self.LENGTH = 150
-        self.X_MID = 30
+        self.WIDTH = 120  # 120cm width of hallway
+        self.LENGTH = 380  # 380cm to the endpoint
+        self.X_MID = 60  # Middle of 120cm hallway
         self.CAR_WIDTH = 14
         self.CAR_LENGTH = 23
         self.MAXREAD = 100
-        self.SAMPLING = 1
+        self.SAMPLING = 1  # 1cm per grid unit
         
         # Car control constants
         self.SPEED = 10
         self.POWER = 40
         self.DELTA_T = 0.25
         
-        # Start and goal positions
-        self.start_pos = (int(30/self.SAMPLING), 0, 0)  # (x, y, theta)
-        self.goal_pos = (int(30/self.SAMPLING), int(50/self.SAMPLING), 0)
+        # Initialize positions - start at beginning middle, goal 380cm forward
+        self.start_pos = Coordinate((60, 0, 0))   # Middle of 120cm width, at 0cm length
+        self.goal_pos = Coordinate((60, 380, 0))  # 380cm forward, staying in middle
         
         # System components
         self.picarx = None
@@ -50,7 +50,7 @@ class IntegratedSelfDrivingSystem:
         self.stop_event = Event()
         
         # State variables
-        self.current_pos = self.start_pos
+        self.current_pos = self.start_pos.state  # Get the (x, y, theta) tuple from Coordinate
         self.map_grid = np.zeros((int(self.LENGTH/self.SAMPLING), int(self.WIDTH/self.SAMPLING)))
         self.planned_path = []
         self.path_index = 0
@@ -115,6 +115,7 @@ class IntegratedSelfDrivingSystem:
     async def _perform_calibration_scan(self):
         """Perform initial 360-degree ultrasonic scan for mapping."""
         logging.info("Performing calibration scan...")
+        logging.info(f"Current pos type: {type(self.current_pos)}, value: {self.current_pos}")
         
         self.picarx.set_cam_pan_angle(0)
         await asyncio.sleep(1)
@@ -166,12 +167,13 @@ class IntegratedSelfDrivingSystem:
             # Plan path using Hybrid A*
             path = await hybrid_a_star(
                 self.current_pos, 
-                self.goal_pos, 
+                self.goal_pos.state,  # Extract the state tuple from Coordinate object
                 inflated_map,
                 self.WIDTH, 
                 self.CAR_WIDTH, 
                 self.SPEED, 
-                self.DELTA_T
+                self.DELTA_T,
+                self.CAR_LENGTH
             )
             
             if path:
@@ -216,7 +218,9 @@ class IntegratedSelfDrivingSystem:
         
         if distance > 1:  # Only move if significant distance
             # Calculate required heading
-            target_heading = np.arctan2(dx, dy)
+            # Note: using dy, dx (not dx, dy) to match kinematic model
+            # where theta=0 is East (positive X) and theta=pi/2 is North (positive Y)
+            target_heading = np.arctan2(dy, dx)
             heading_error = target_heading - current_theta
             
             # Normalize heading error
@@ -235,9 +239,22 @@ class IntegratedSelfDrivingSystem:
             move_time = distance / self.SPEED  # Time in seconds
             await self._move_forward(move_time)
             
-            # Update position
-            self.current_pos = target_state
+            # Update position based on actual movement (more realistic)
+            # Instead of assuming perfect movement to target_state, 
+            # update based on the distance we attempted to move
+            actual_distance_moved = self.SPEED * move_time / self.SAMPLING  # Convert back to grid units
+            
+            # Calculate actual new position based on heading (matching kinematic model)
+            # theta=0 is East (positive X), theta=pi/2 is North (positive Y)
+            new_x = current_x + actual_distance_moved * np.cos(target_heading)
+            new_y = current_y + actual_distance_moved * np.sin(target_heading)
+            
+            # Update to realistic position (not perfect target)
+            self.current_pos = (int(round(new_x)), int(round(new_y)), target_heading)
             await self._update_car_position()
+            
+            # Log the movement for debugging
+            logging.info(f"Moved from ({current_x}, {current_y}) to {self.current_pos[:2]}, target was ({target_x}, {target_y})")
 
     async def _turn_car(self, angle_degrees):
         """Turn car by specified angle."""
@@ -325,6 +342,11 @@ class IntegratedSelfDrivingSystem:
         """Main control loop integrating all subsystems."""
         logging.info("Starting main control loop")
         
+        # Debug: Log initial and goal positions
+        logging.info(f"Start position: {self.current_pos}")
+        logging.info(f"Goal position: {self.goal_pos.state}")
+        logging.info(f"Expected distance to goal: {np.sqrt(sum((a - b)**2 for a, b in zip(self.current_pos[:2], self.goal_pos.state[:2]))):.1f} units")
+        
         # Start background tasks
         mapping_task = asyncio.create_task(self._continuous_mapping())
         detection_task = asyncio.create_task(self._object_detection_monitor())
@@ -350,7 +372,7 @@ class IntegratedSelfDrivingSystem:
                     # Check if we've reached the goal
                     if self.path_index >= len(self.planned_path):
                         current_pos = self.current_pos[:2]  # Just x, y
-                        goal_pos = self.goal_pos[:2]
+                        goal_pos = self.goal_pos.state[:2]  # Just x, y from Coordinate object
                         distance_to_goal = np.sqrt(sum((a - b)**2 for a, b in zip(current_pos, goal_pos)))
                         
                         if distance_to_goal < 2:  # Within 2 grid cells
