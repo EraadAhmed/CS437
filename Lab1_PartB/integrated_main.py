@@ -1,0 +1,438 @@
+# integrated_main.py
+# CS 437 Lab 1 Step 7: Integrated Self-Driving System
+# Combines ultrasonic mapping, object detection, and car control
+
+import asyncio
+import time
+import numpy as np
+import logging
+from threading import Event
+
+from picarx import Picarx
+from computer_vision import ultrasonic_pan_loop, car_pixels, print_map
+from car_control import hybrid_a_star
+from object_detection import ObjectDetector
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+class IntegratedSelfDrivingSystem:
+    """
+    Integrated self-driving system combining:
+    - Ultrasonic sensor mapping
+    - TensorFlow Lite object detection  
+    - Hybrid A* path planning
+    - Car control
+    """
+    
+    def __init__(self):
+        # Physical constants (from your existing code)
+        self.WIDTH = 60
+        self.LENGTH = 150
+        self.X_MID = 30
+        self.CAR_WIDTH = 14
+        self.CAR_LENGTH = 23
+        self.MAXREAD = 100
+        self.SAMPLING = 1
+        
+        # Car control constants
+        self.SPEED = 10
+        self.POWER = 40
+        self.DELTA_T = 0.25
+        
+        # Start and goal positions
+        self.start_pos = (int(30/self.SAMPLING), 0, 0)  # (x, y, theta)
+        self.goal_pos = (int(30/self.SAMPLING), int(50/self.SAMPLING), 0)
+        
+        # System components
+        self.picarx = None
+        self.object_detector = None
+        self.stop_event = Event()
+        
+        # State variables
+        self.current_pos = self.start_pos
+        self.map_grid = np.zeros((int(self.LENGTH/self.SAMPLING), int(self.WIDTH/self.SAMPLING)))
+        self.planned_path = []
+        self.path_index = 0
+        self.last_replan_time = 0
+        self.halt_duration = 0
+        
+        # Control loop timing
+        self.loop_frequency = 10  # 10 Hz as specified in design
+        self.replan_interval = 2.0  # Replan every 2 seconds
+        self.max_halt_time = 5.0  # Maximum time to wait for safety objects
+        
+    async def initialize(self):
+        """Initialize all system components."""
+        logging.info("Initializing integrated self-driving system...")
+        
+        # Initialize PiCar
+        try:
+            self.picarx = Picarx(servo_pins=["P0", "P1", "P3"])
+            logging.info("PiCar initialized")
+        except Exception as e:
+            logging.error(f"Failed to initialize PiCar: {e}")
+            raise
+        
+        # Initialize object detector
+        try:
+            self.object_detector = ObjectDetector(
+                model_path='efficientdet_lite0.tflite',
+                confidence_threshold=0.3,
+                num_threads=2,
+                enable_edge_tpu=False
+            )
+            self.object_detector.start_detection()
+            logging.info("Object detector initialized")
+        except Exception as e:
+            logging.error(f"Failed to initialize object detector: {e}")
+            raise
+        
+        # Initialize car position in map
+        await self._update_car_position()
+        
+        # Initial calibration scan
+        await self._perform_calibration_scan()
+        
+        logging.info("System initialization complete")
+
+    async def _update_car_position(self):
+        """Update car position in the occupancy grid."""
+        samp_car_width = int(np.ceil(self.CAR_WIDTH/self.SAMPLING))
+        samp_car_length = int(np.ceil(self.CAR_LENGTH/self.SAMPLING))
+        
+        # Clear previous car position
+        self.map_grid[self.map_grid == 2] = 0
+        
+        # Mark current car position
+        x, y, _ = self.current_pos
+        for i in range(max(0, int(x - samp_car_width/2)), 
+                      min(int(self.WIDTH/self.SAMPLING), int(x + samp_car_width/2))):
+            for j in range(max(0, int(y - samp_car_length)), 
+                          min(int(self.LENGTH/self.SAMPLING), int(y))):
+                self.map_grid[j][i] = 2
+
+    async def _perform_calibration_scan(self):
+        """Perform initial 360-degree ultrasonic scan for mapping."""
+        logging.info("Performing calibration scan...")
+        
+        self.picarx.set_cam_pan_angle(0)
+        await asyncio.sleep(1)
+        
+        angle = -90
+        while angle <= 90 and not self.stop_event.is_set():
+            self.picarx.set_cam_pan_angle(angle)
+            await asyncio.sleep(0.1)
+            
+            reading = self.picarx.ultrasonic.read()
+            
+            if 0 < reading <= self.MAXREAD:
+                await self._update_map_with_reading(angle, reading)
+            
+            angle += 5  # Faster scan for calibration
+        
+        self.picarx.set_cam_pan_angle(0)  # Return to center
+        await asyncio.sleep(1)
+        
+        logging.info("Calibration scan complete")
+
+    async def _update_map_with_reading(self, angle, reading):
+        """Update occupancy grid with ultrasonic reading."""
+        x, y, theta = self.current_pos
+        
+        if angle == 0:
+            # Straight ahead
+            object_x = x
+            object_y = min(int(self.LENGTH/self.SAMPLING) - 1, 
+                          y + int(reading / self.SAMPLING))
+        else:
+            # Angled reading
+            object_x = int((x + reading * np.sin(np.radians(angle)))/self.SAMPLING)
+            object_y = int((y + reading * np.cos(np.radians(angle)))/self.SAMPLING)
+        
+        # Bounds checking
+        if (0 <= object_x < int(self.WIDTH/self.SAMPLING) and 
+            0 <= object_y < int(self.LENGTH/self.SAMPLING)):
+            self.map_grid[object_y][object_x] = 1  # Obstacle
+
+    async def _plan_path(self):
+        """Plan path from current position to goal using Hybrid A*."""
+        try:
+            logging.info("Planning path...")
+            
+            # Inflate obstacles for safety
+            inflated_map = self._inflate_obstacles(self.map_grid)
+            
+            # Plan path using Hybrid A*
+            path = await hybrid_a_star(
+                self.current_pos, 
+                self.goal_pos, 
+                inflated_map,
+                self.WIDTH, 
+                self.CAR_WIDTH, 
+                self.SPEED, 
+                self.DELTA_T
+            )
+            
+            if path:
+                self.planned_path = path
+                self.path_index = 0
+                logging.info(f"Path planned with {len(path)} waypoints")
+                return True
+            else:
+                logging.warning("No path found to goal")
+                return False
+                
+        except Exception as e:
+            logging.error(f"Path planning failed: {e}")
+            return False
+
+    def _inflate_obstacles(self, map_grid, inflation_radius=2):
+        """Inflate obstacles to account for car width."""
+        inflated = map_grid.copy()
+        
+        obstacles = np.where(map_grid == 1)
+        for oy, ox in zip(obstacles[0], obstacles[1]):
+            for dy in range(-inflation_radius, inflation_radius + 1):
+                for dx in range(-inflation_radius, inflation_radius + 1):
+                    ny, nx = oy + dy, ox + dx
+                    if (0 <= ny < inflated.shape[0] and 
+                        0 <= nx < inflated.shape[1] and
+                        inflated[ny][nx] == 0):  # Don't overwrite car position
+                        inflated[ny][nx] = 1
+        
+        return inflated
+
+    async def _execute_motion_command(self, target_state):
+        """Execute motion to reach target state."""
+        current_x, current_y, current_theta = self.current_pos
+        target_x, target_y, target_theta = target_state
+        
+        # Calculate required motion
+        dx = target_x - current_x
+        dy = target_y - current_y
+        
+        distance = np.sqrt(dx**2 + dy**2) * self.SAMPLING  # Convert to cm
+        
+        if distance > 1:  # Only move if significant distance
+            # Calculate required heading
+            target_heading = np.arctan2(dx, dy)
+            heading_error = target_heading - current_theta
+            
+            # Normalize heading error
+            while heading_error > np.pi:
+                heading_error -= 2 * np.pi
+            while heading_error < -np.pi:
+                heading_error += 2 * np.pi
+            
+            # Execute turn if needed
+            if abs(heading_error) > 0.1:  # 0.1 radians ~ 6 degrees
+                turn_angle = np.degrees(heading_error)
+                await self._turn_car(turn_angle)
+                self.current_pos = (current_x, current_y, target_heading)
+            
+            # Execute forward motion
+            move_time = distance / self.SPEED  # Time in seconds
+            await self._move_forward(move_time)
+            
+            # Update position
+            self.current_pos = target_state
+            await self._update_car_position()
+
+    async def _turn_car(self, angle_degrees):
+        """Turn car by specified angle."""
+        # Convert angle to servo angle and duration
+        if angle_degrees > 0:  # Turn right
+            self.picarx.set_dir_servo_angle(30)
+        else:  # Turn left
+            self.picarx.set_dir_servo_angle(-30)
+        
+        # Move forward briefly to execute turn
+        self.picarx.forward(self.POWER)
+        await asyncio.sleep(abs(angle_degrees) / 90 * 0.5)  # Rough timing
+        self.picarx.stop()
+        
+        # Return steering to center
+        self.picarx.set_dir_servo_angle(0)
+        await asyncio.sleep(0.1)
+
+    async def _move_forward(self, duration):
+        """Move car forward for specified duration."""
+        self.picarx.forward(self.POWER)
+        await asyncio.sleep(duration)
+        self.picarx.stop()
+
+    async def _continuous_mapping(self):
+        """Continuous ultrasonic mapping in background."""
+        angle = 0
+        direction = 5
+        
+        while not self.stop_event.is_set():
+            # Quick ultrasonic reading
+            reading = self.picarx.ultrasonic.read()
+            if 0 < reading <= self.MAXREAD:
+                await self._update_map_with_reading(angle, reading)
+            
+            # Update angle for next scan
+            angle += direction
+            if angle >= 30 or angle <= -30:  # Limited range for forward driving
+                direction *= -1
+            
+            await asyncio.sleep(0.1)
+
+    async def _object_detection_monitor(self):
+        """Monitor object detection results."""
+        while not self.stop_event.is_set():
+            if self.object_detector.is_halt_needed():
+                logging.warning("Safety object detected - initiating halt")
+                self.halt_duration = time.time()
+                
+                # Stop car immediately
+                self.picarx.stop()
+                
+                # Wait for object to clear or timeout
+                while (self.object_detector.is_halt_needed() and 
+                       time.time() - self.halt_duration < self.max_halt_time and
+                       not self.stop_event.is_set()):
+                    await asyncio.sleep(0.1)
+                
+                if time.time() - self.halt_duration >= self.max_halt_time:
+                    logging.warning("Halt timeout reached - attempting recovery")
+                    await self._recovery_maneuver()
+                else:
+                    logging.info("Safety object cleared - resuming")
+                
+                self.halt_duration = 0
+            
+            await asyncio.sleep(0.1)
+
+    async def _recovery_maneuver(self):
+        """Simple recovery maneuver when blocked."""
+        logging.info("Executing recovery maneuver")
+        
+        # Back up slightly
+        self.picarx.backward(self.POWER)
+        await asyncio.sleep(1)
+        self.picarx.stop()
+        
+        # Turn 45 degrees
+        await self._turn_car(45)
+        
+        # Force replan
+        self.last_replan_time = 0
+
+    async def main_control_loop(self):
+        """Main control loop integrating all subsystems."""
+        logging.info("Starting main control loop")
+        
+        # Start background tasks
+        mapping_task = asyncio.create_task(self._continuous_mapping())
+        detection_task = asyncio.create_task(self._object_detection_monitor())
+        
+        try:
+            while not self.stop_event.is_set():
+                loop_start = time.time()
+                
+                # Check if we need to replan
+                if (time.time() - self.last_replan_time > self.replan_interval or 
+                    not self.planned_path):
+                    await self._plan_path()
+                    self.last_replan_time = time.time()
+                
+                # Execute next waypoint if path available
+                if (self.planned_path and self.path_index < len(self.planned_path) and
+                    not self.object_detector.is_halt_needed()):
+                    
+                    target_state = self.planned_path[self.path_index]
+                    await self._execute_motion_command(target_state)
+                    self.path_index += 1
+                    
+                    # Check if we've reached the goal
+                    if self.path_index >= len(self.planned_path):
+                        current_pos = self.current_pos[:2]  # Just x, y
+                        goal_pos = self.goal_pos[:2]
+                        distance_to_goal = np.sqrt(sum((a - b)**2 for a, b in zip(current_pos, goal_pos)))
+                        
+                        if distance_to_goal < 2:  # Within 2 grid cells
+                            logging.info("Goal reached!")
+                            break
+                        else:
+                            # Need to replan
+                            self.last_replan_time = 0
+                
+                # Maintain loop frequency
+                elapsed = time.time() - loop_start
+                sleep_time = max(0, 1.0/self.loop_frequency - elapsed)
+                await asyncio.sleep(sleep_time)
+                
+        except Exception as e:
+            logging.error(f"Control loop error: {e}")
+        finally:
+            # Cleanup
+            mapping_task.cancel()
+            detection_task.cancel()
+            self.picarx.stop()
+            logging.info("Control loop stopped")
+
+    async def run(self):
+        """Main run method."""
+        try:
+            await self.initialize()
+            await self.main_control_loop()
+        except KeyboardInterrupt:
+            logging.info("System stopped by user")
+        except Exception as e:
+            logging.error(f"System error: {e}")
+        finally:
+            await self.shutdown()
+
+    async def shutdown(self):
+        """Shutdown all systems."""
+        logging.info("Shutting down system...")
+        
+        self.stop_event.set()
+        
+        if self.picarx:
+            self.picarx.stop()
+        
+        if self.object_detector:
+            self.object_detector.stop_detection()
+        
+        logging.info("Shutdown complete")
+
+# Analysis functions for lab report
+def analyze_performance():
+    """Analyze system performance for lab report."""
+    print("=== CS 437 Step 7 Performance Analysis ===")
+    
+    print("\n1. Hardware Acceleration Analysis:")
+    print("   - TensorFlow Lite uses XNNPACK for CPU SIMD acceleration")
+    print("   - OpenCV leverages NEON instructions on ARM processors")  
+    print("   - Picamera2 uses ISP for hardware-accelerated image processing")
+    print("   - Coral EdgeTPU can provide 10-100x inference speedup for supported models")
+    print("   - GPU acceleration limited on Pi; EdgeTPU or optimized CPU paths preferred")
+    
+    print("\n2. Multithreading Analysis:")
+    print("   - Beneficial for I/O bound tasks (camera, ultrasonic, motor control)")
+    print("   - CPU-bound inference doesn't benefit from threading due to Python GIL")
+    print("   - Separate thread/process for inference prevents blocking main control loop")
+    print("   - Small bounded queues prevent memory buildup and reduce latency")
+    print("   - Threading improves system responsiveness to ~10-15 Hz control rate")
+    
+    print("\n3. Frame Rate vs Accuracy Trade-offs:")
+    print("   - Target: ~1 FPS detection with 10-15 Hz control loop responsiveness")
+    print("   - Use 320x320 input size for speed vs larger sizes for accuracy")
+    print("   - INT8 quantized models provide 2-4x speedup vs FP32")
+    print("   - Lower confidence threshold (0.3) catches more objects but more false positives")
+    print("   - Temporal filtering and tracking between detections maintains perception rate")
+    print("   - Hardware acceleration allows higher accuracy within latency budget")
+
+if __name__ == "__main__":
+    # Option to run analysis or full system
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "--analyze":
+        analyze_performance()
+    else:
+        system = IntegratedSelfDrivingSystem()
+        asyncio.run(system.run())
