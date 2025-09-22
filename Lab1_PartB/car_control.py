@@ -51,7 +51,7 @@ def next_state_gen(current_state, velocity, dt, steer_angle, Car_Length):
     else:
         R = d / beta  # radius of curvature
         dx = int(R * np.sin(current_state[2] + beta))
-        dy = int(-1*R * np.cos(current_state[2] + beta))
+        dy = int(R * np.cos(current_state[2] + beta))
     new_x = current_state[0]  + dx
     new_y = current_state[1] + dy
     
