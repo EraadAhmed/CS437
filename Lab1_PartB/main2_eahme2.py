@@ -2,8 +2,9 @@ import asyncio
 import math
 import sys
 from queue import PriorityQueue
-
 import numpy as np
+from picamera2 import Picamera2
+from picarx import Picarx
 
 
 # ---------------------------
@@ -80,7 +81,7 @@ class Navigator:
         dt = float(1/30.5)
     ):
         # Hardware
-        self.px = picarx
+        self.px = Picarx(servo_pins=["P0", "P1", "P3"])
 
         # Spatial scaling
         self.SAMPLING = float(sampling)  # cm per cell
