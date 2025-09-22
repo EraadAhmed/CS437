@@ -137,18 +137,31 @@ class Navigator:
     # Map helpers (indexing [y,x])
     # ---------------------------
 
+    def log(self, msg: str):
+        """Append debug messages to nav_debug.log."""
+        with open("nav_debug.log", "a") as f:
+            f.write(msg + "\n")
+
+
     def inside(self, x, y):
         ix, iy = int(round(x)), int(round(y))
         return (0 <= ix < self.WIDTH_C) and (0 <= iy < self.LENGTH_R)
 
 
+
     async def map_obstacle(self, x, y):
-        if not self.inside(x, y):
+        ix, iy = int(round(x)), int(round(y))
+        if not self.inside(ix, iy):
             return
+        pad = max(1, self.CAR_W_SCALED // 2)   # simple clearance
         async with self.map_lock:
-            if self.map_[y, x] != 1:
-                self.map_[y, x] = 1
-                self.map_dirty.set()
+            for yy in range(iy - pad, iy + pad + 1):
+                for xx in range(ix - pad, ix + pad + 1):
+                    if 0 <= xx < self.WIDTH_C and 0 <= yy < self.LENGTH_R:
+                        if self.map_[yy, xx] != 1:
+                            self.map_[yy, xx] = 1
+            self.map_dirty.set()`
+
 
     async def clear_car(self):
         async with self.map_lock:
@@ -360,7 +373,7 @@ class Navigator:
         
         new_head_angle = (current_state[2] + beta) % (2 * np.pi)  # Normalize angle
         nearest = self.snap_angle(new_head_angle)
-        print(f"[step] from=({current_state[0]:.1f},{current_state[1]:.1f},{np.degrees(current_state[2]):.1f}°) "
+        self.log(f"[step] from=({current_state[0]:.1f},{current_state[1]:.1f},{np.degrees(current_state[2]):.1f}°) "
           f"-> to=({new_x:.1f},{new_y:.1f},{np.degrees(nearest):.1f}°) "
           f"d={d:.2f}, steer={np.degrees(steer_angle):.1f}°")
         return (new_x, new_y, nearest)
@@ -405,8 +418,16 @@ class Navigator:
             for control in [-30, -20, -10, 0, 10, 20, 30]:
                 next_state = self.step_kinematics(current_node.state, np.radians(control))
 
+                #forward check 
+                dx = next_state[0] - current_node.state[0]
+                dy = next_state[1] - current_node.state[1]
+                forward = dx * math.sin(current_node.state[2]) + dy * math.cos(current_node.state[2])
+                if forward <= 0:
+                    continue
+
                 if next_state in closed:
                     continue
+
                 if not self.boundary_ok(next_state) or self.collision(next_state):
                     continue
 
@@ -439,11 +460,11 @@ class Navigator:
             new_path = self.plan_once()
             self.map_ = old_map
             if new_path:
-                print(f"[planner] path len={len(new_path)} "
+                self.log(f"[planner] path len={len(new_path)} "
                     f"first=({new_path[0][0]:.1f},{new_path[0][1]:.1f}) "
                     f"last=({new_path[-1][0]:.1f},{new_path[-1][1]:.1f})")
             else:
-                print("[planner] no path found")
+                self.log("[planner] no path found")
 
             async with self.plan_lock:
                 self.path = new_path
@@ -451,6 +472,10 @@ class Navigator:
     # ---------------------------
     # Controller – follow waypoints
     # ---------------------------
+
+    def clip_angle(self, theta_rad):
+        max_rad = np.radians(self.servo_max_degs)
+        return max(-max_rad, min(max_rad, theta_rad))
 
     async def control_loop(self):
         """
@@ -475,7 +500,7 @@ class Navigator:
 
             # Choose a lookahead waypoint (skip the very first if it's current cell)
             wp = None
-            for p in path[1:4]:  # small lookahead window
+            for p in path[2:8]:  # small lookahead window
                 if euclid_xy(self.state, p) > 0.5:
                     wp = p
                     break
@@ -491,9 +516,9 @@ class Navigator:
             # Normalize error to [-pi, pi]
             err = (err + np.pi) % (2 * np.pi) - np.pi
             raw_cmd = kp_turn * err  # still in radians
-            steer_cmd = self.snap_angle(raw_cmd)
+            steer_cmd = self.clip_angle(raw_cmd)
 
-            print(f"[ctrl] state=({self.state[0]:.1f},{self.state[1]:.1f},"
+            self.log(f"[ctrl] state=({self.state[0]:.1f},{self.state[1]:.1f},"
             f"{np.degrees(self.state[2]):.1f}°) "
             f"wp=({wp[0]:.1f},{wp[1]:.1f}) "
             f"steer={np.degrees(steer_cmd):.1f}° "
@@ -523,6 +548,7 @@ class Navigator:
 
     async def start(self):
         # Center camera
+        open("nav_debug.log", "w").close() # clear log
         self.px.set_cam_pan_angle(0)
         self.px.set_dir_servo_angle(0)
         # Do one initial calibration sweep
@@ -545,3 +571,4 @@ class Navigator:
 
     def stop(self):
         self.stop_event.set()
+
