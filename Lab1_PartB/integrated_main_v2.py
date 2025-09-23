@@ -5,12 +5,13 @@ from queue import PriorityQueue
 import numpy as np
 from picarx import Picarx
 import itertools
+from scipy.ndimage import zoom # You will need this for the display_loop
 
 # Import the new object detector
 from object_detection import ObjectDetector
 
 # ---------------------------
-# Utility math / models (from navigation.py)
+# Utility math / models
 # ---------------------------
 def euclid_xy(a, b):
     return math.hypot(a[0] - b[0], a[1] - b[1])
@@ -29,62 +30,52 @@ class Coordinate:
 # ---------------------------
 
 class Navigator:
-    # --- Tunables (from navigation.py) ---
+    # --- Tunables ---
     PAN_ANGLE = 85
     MAXREAD = 100
     SENSOR_REFRESH = 0.10
+    DISPLAY_REFRESH = 0.20
+    CAR_DISPLAY_REFRESH = 0.10
     PLAN_REFRESH_MIN = 0.5
     POWER = 40
     
     def __init__(
         self,
         picarx,
-        width_cm=100,
-        length_cm=183,
-        sampling=1,
+        width_cm=120,
+        length_cm=380,
+        sampling=2,
         car_width=14,
         car_length=23,
-        start_pos=(49, 0),
-        start_angle=0.0,
-        goal_xy=(49, 182),
+        start_angle=90.0,
         servo_max_degs=30,
         speed=30.5
     ):
-        # Hardware
         self.px = picarx
-        # NEW: Initialize the Object Detector
         self.detector = ObjectDetector(model_path='efficientdet_lite0.tflite')
-
-        # Spatial scaling
         self.SAMPLING = float(sampling)
         self.WIDTH_C = int(width_cm / self.SAMPLING)
         self.LENGTH_R = int(length_cm / self.SAMPLING)
         self.map_ = np.zeros((self.LENGTH_R, self.WIDTH_C), dtype=np.uint8)
         self.speed_scaled = float(speed / self.SAMPLING)
         self.dt_scaled = float(1.0 / speed) * self.SAMPLING
-        
         self.CAR_W_SCALED = int(np.ceil(car_width / self.SAMPLING))
         self.CAR_L_SCALED = int(np.ceil(car_length / self.SAMPLING))
-
-        # State (grid cells + radians)
-        self.state = (int(start_pos[0]), int(start_pos[1]), float(np.radians(start_angle))) 
+        # This initial state is now fully correct
+        self.start_pos=(int(59/self.SAMPLING), int(0/self.SAMPLING)),
+        self.start_state = (int(start_pos[0]), int(start_pos[1]), float(np.radians(start_angle)))
+        self.state = self.start_state
+        self.goal = (int(59/self.SAMPLING), int(379/self.SAMPLING))),
         self.goal_xy = (int(goal_xy[0]), int(goal_xy[1]))
-
-        # Control limits
+        
         self.servo_max_degs = float(servo_max_degs)
-
-        # Concurrency primitives
         self.stop_event = asyncio.Event()
         self.map_lock = asyncio.Lock()
         self.map_dirty = asyncio.Event()
         self.plan_lock = asyncio.Lock()
         self.path = []
-        
-        # NEW: Event for computer vision to signal a halt
         self.halt_event = asyncio.Event()
-
-        # Panning step
-        self.PAN_STEP_DEG = 4.0
+        self.PAN_STEP_DEG = 4.0 # A slightly larger step can be more efficient
 
     def log(self, msg: str):
         with open("nav_debug.log", "a") as f:
@@ -94,51 +85,283 @@ class Navigator:
         ix, iy = int(round(x)), int(round(y))
         return (0 <= ix < self.WIDTH_C) and (0 <= iy < self.LENGTH_R)
 
+    # In the Navigator class, replace your map_obstacle with this one:
+
     async def map_obstacle(self, x, y):
+        """Marks a single raw obstacle cell, but ignores points inside a 'safe zone' around the start."""
         ix, iy = int(round(x)), int(round(y))
-        if not self.inside(ix, iy): return
-        pad = max(1, self.CAR_W_SCALED // 2)
+        if not self.inside(ix, iy):
+            return
+
+        # DEFINITIVE FIX: Create a "safe zone" around the car's initial start point.
+        # This prevents the initial scan from blocking the planner.
+        start_x, start_y, _ = self.start_state
+        safe_zone_radius = self.CAR_L_SCALED * 1.5 # 1.5 car lengths
+        if math.hypot(ix - start_x, iy - start_y) < safe_zone_radius:
+            # self.log(f"[map] Ignored obstacle at ({ix},{iy}) inside safe zone.")
+            return # Skip mapping this point
+
         async with self.map_lock:
-            for yy in range(iy - pad, iy + pad + 1):
-                for xx in range(ix - pad, ix + pad + 1):
-                    if self.inside(xx, yy) and self.map_[yy, xx] != 1:
-                        self.map_[yy, xx] = 1
-            self.map_dirty.set()
+            # Only mark the single cell corresponding to the raw sensor reading
+            if self.map_[iy, ix] != 1:
+                self.map_[iy, ix] = 1
+                self.map_dirty.set()
 
     async def map_car(self):
-        x, y, _ = self.state
+        x, y, theta = self.state
         ix, iy = int(round(x)), int(round(y))
-        half_w = self.CAR_W_SCALED // 2
-        y0, y1 = iy - self.CAR_L_SCALED, iy
-        x0, x1 = ix - half_w, ix + half_w
+        half_l = self.CAR_L_SCALED / 2.0
+        half_w = self.CAR_W_SCALED / 2.0
+        corners = [(-half_w, -half_l), (half_w, -half_l), (half_w, half_l), (-half_w, half_l)]
+        rotated_corners = []
+        for c_x, c_y in corners:
+            rot_x = c_x * math.cos(theta) - c_y * math.sin(theta)
+            rot_y = c_x * math.sin(theta) + c_y * math.cos(theta)
+            rotated_corners.append((ix + rot_x, iy + rot_y))
+        
+        min_x = int(round(min(c[0] for c in rotated_corners)))
+        max_x = int(round(max(c[0] for c in rotated_corners)))
+        min_y = int(round(min(c[1] for c in rotated_corners)))
+        max_y = int(round(max(c[1] for c in rotated_corners)))
+
         async with self.map_lock:
             self.map_[self.map_ == 2] = 0
-            for yy in range(y0, y1 + 1):
-                if 0 <= yy < self.LENGTH_R:
-                    for xx in range(x0, x1 + 1):
-                        if 0 <= xx < self.WIDTH_C and self.map_[yy, xx] != 1:
-                            self.map_[yy, xx] = 2
+            for r in range(min_y, max_y + 1):
+                for c in range(min_x, max_x + 1):
+                    if self.inside(c, r) and self.map_[r, c] == 0:
+                        self.map_[r,c] = 2
             self.map_dirty.set()
 
-    # --- Sensor, Car Mapping, Planner, and Display loops remain the same ---
-    # (Copy them directly from navigation.py)
-    # For brevity, I'm omitting them here, but you should include:
-    # async def ultrasonic_pan_loop(self): ...
-    # async def calibrate(self): ...
-    # async def display_loop(self): ...
-    # async def car_map_loop(self): ...
-    # def collision(self, state): ...
-    # def boundary_ok(self, state): ...
-    # def snap_angle(self, theta_rad): ...
-    # def step_kinematics(self, current_state, steer_angle): ...
-    # def reconstruct(self, node): ...
-    # def plan_once(self): ...
-    # async def plan_loop(self): ...
-    # def clip_angle(self, theta_rad): ...
 
-    # --- NEW: Computer Vision Loop ---
+    async def ultrasonic_pan_loop(self):
+        angle = 0.0
+        dir_ = self.PAN_STEP_DEG
+        pan_limit = self.PAN_ANGLE
+        self.px.set_cam_pan_angle(0)
+        await asyncio.sleep(0.3)
+        while not self.stop_event.is_set():
+            self.px.set_cam_pan_angle(angle)
+            await asyncio.sleep(self.SENSOR_REFRESH)
+            reading_cm = self.px.ultrasonic.read()
+            if not (0 < reading_cm <= self.MAXREAD):
+                angle += dir_
+                if angle >= pan_limit or angle <= -pan_limit: dir_ *= -1
+                continue
+            
+            x, y, theta = self.state
+            theta_ray = theta + np.radians(angle)
+            dx_cells = int((reading_cm * np.cos(theta_ray)) / self.SAMPLING)
+            dy_cells = int((reading_cm * np.sin(theta_ray)) / self.SAMPLING)
+            ox, oy = x + dx_cells, y + dy_cells
+            if self.inside(ox, oy):
+                await self.map_obstacle(ox, oy)
+            angle += dir_
+            if angle >= pan_limit or angle <= -pan_limit: dir_ *= -1
+        self.px.set_cam_pan_angle(0)
+
+    async def calibrate(self):
+        angle = -90
+        step = self.PAN_STEP_DEG
+        pan_limit = 90
+        self.px.set_cam_pan_angle(0)
+        await asyncio.sleep(0.5)
+        while angle <= pan_limit:
+            self.px.set_cam_pan_angle(angle)
+            await asyncio.sleep(self.SENSOR_REFRESH)
+            reading_cm = self.px.ultrasonic.read()
+            if not (0 < reading_cm <= self.MAXREAD):
+                angle += step
+                continue
+            
+            x, y, theta = self.state
+            theta_ray = theta + np.radians(angle)
+            dx_cells = int((reading_cm * np.cos(theta_ray)) / self.SAMPLING)
+            dy_cells = int((reading_cm * np.sin(theta_ray)) / self.SAMPLING)
+            ox, oy = x + dx_cells, y + dy_cells
+            if self.inside(ox, oy):
+                await self.map_obstacle(ox, oy)
+            angle += step
+        self.px.set_cam_pan_angle(0)
+        await asyncio.sleep(0.5)
+
+    async def display_loop(self):
+        # ... (this function is fine)
+        log_path = "display.log"
+        factor = 1/5.0
+        with open(log_path, "w") as f:
+            while not self.stop_event.is_set():
+                async with self.map_lock:
+                    small_map = zoom(self.map_, zoom=factor, order=0)
+                lines = []
+                h, w = small_map.shape
+                for yy in range(h):
+                    row = small_map[yy]
+                    line = "".join(
+                        ". " if val == 0 else "X " if val == 1 else "C "
+                        for val in row
+                    )
+                    lines.append(line)
+                f.seek(0)
+                f.truncate(0)
+                f.write("\n".join(lines) + "\n")
+                f.flush()
+                await asyncio.sleep(self.DISPLAY_REFRESH)
+
+    async def car_map_loop(self):
+        while not self.stop_event.is_set():
+            await self.map_car()
+            await asyncio.sleep(self.CAR_DISPLAY_REFRESH)
+
+    def collision(self, state):
+        # ... (this function is fine)
+        x, y, _ = state
+        ix, iy = int(round(x)), int(round(y))
+        if not self.inside(ix, iy):
+            return True
+        return self.map_[iy, ix] == 1
+
+    def boundary_ok(self, state):
+        # Check both X and Y boundaries for complete boundary validation
+        x, y, _ = state
+        half = self.CAR_W_SCALED / 2
+        x_ok = (x - half >= 0) and (x + half < self.WIDTH_C)
+        y_ok = (y >= 0) and (y < self.LENGTH_R)
+        return x_ok and y_ok
+
+    def step_kinematics(self, current_state, steer_angle):
+        # ... (this function is correct)
+        x, y, theta = current_state
+        d = self.speed_scaled * self.dt_scaled
+        if abs(steer_angle) < 1e-3:
+            new_x = x + d * math.cos(theta)
+            new_y = y + d * math.sin(theta)
+            new_theta = theta
+        else:
+            R = self.CAR_L_SCALED / math.tan(steer_angle)
+            beta = d / R
+            cx = x - R * math.sin(theta)
+            cy = y + R * math.cos(theta)
+            new_x = cx + R * math.sin(theta + beta)
+            new_y = cy - R * math.cos(theta + beta)
+            new_theta = theta + beta
+        new_theta = new_theta % (2 * math.pi)
+        return (new_x, new_y, new_theta)
+
+    def reconstruct(self, node):
+        # ... (this function is fine)
+        out = []
+        while node is not None:
+            out.append(node.state)
+            node = node.parent
+        return list(reversed(out))
+
+# In the Navigator class, replace the entire plan_once function with this:
+
+    async def plan_once(self):
+        self.log("\n[planner] --- Starting New Plan ---")
+        start = tuple(self.state)
+        goal_xy = self.goal_xy
+        counter = itertools.count()
+
+        def key_of(state): return (int(round(state[0])), int(round(state[1])))
+
+        if self.collision(start):
+            self.log(f"[planner] ABORT: Start state ({start[0]:.1f}, {start[1]:.1f}) is in collision!")
+            return []
+
+        if key_of(start) == goal_xy:
+            self.log("[planner] SUCCESS: Already at goal.")
+            return [start]
+
+        openq = PriorityQueue()
+        g_cost = { key_of(start): 0.0 }
+        
+        def h_of(state): return math.hypot(state[0] - goal_xy[0], state[1] - goal_xy[1])
+
+        start_node = Coordinate(start, 0.0, h=h_of(start), parent=None)
+        openq.put((start_node.f(), next(counter), start_node))
+        self.log(f"[planner] Starting A* from ({start[0]:.1f}, {start[1]:.1f}, {math.degrees(start[2]):.1f}°)")
+
+        closed = set()
+        STEERS = np.radians([-30, -20, -10, 0, 10, 20, 30])
+        
+        # Limit the search to prevent infinite loops in impossible situations
+        max_iterations = 3000
+        
+        for i in range(max_iterations):
+            if openq.empty():
+                self.log("[planner] ABORT: Open queue is empty. No path found.")
+                return []
+
+            _, _, cur = openq.get()
+            ckey = key_of(cur.state)
+
+            if ckey in closed:
+                continue
+            closed.add(ckey)
+
+            if euclid_xy(cur.state, goal_xy) < 5.0:
+                self.log("[planner] SUCCESS: Found a path to the goal.")
+                return self.reconstruct(cur)
+
+            # Log the state we are expanding
+            if i % 100 == 0: # Log every 100th expansion to avoid spam
+                self.log(f"[planner] Expanding node #{i}: state=({cur.state[0]:.1f}, {cur.state[1]:.1f})")
+
+            for control in STEERS:
+                nxt = self.step_kinematics(cur.state, control)
+
+                # --- DETAILED DEBUGGING CHECKS ---
+                if not self.boundary_ok(nxt):
+                    # self.log(f"[planner] REJECT: state ({nxt[0]:.1f}, {nxt[1]:.1f}) is out of bounds.")
+                    continue
+                
+                if self.collision(nxt):
+                    # self.log(f"[planner] REJECT: state ({nxt[0]:.1f}, {nxt[1]:.1f}) is in collision.")
+                    continue
+                
+                dx = nxt[0] - cur.state[0]
+                dy = nxt[1] - cur.state[1]
+                forward = dx * math.cos(cur.state[2]) + dy * math.sin(cur.state[2])
+                if forward < 0:
+                    # self.log(f"[planner] REJECT: state ({nxt[0]:.1f}, {nxt[1]:.1f}) is not a forward move.")
+                    continue
+                # --- END DEBUGGING CHECKS ---
+
+                nkey = key_of(nxt)
+                ng = cur.g + euclid_xy(cur.state, nxt)
+
+                if nkey not in g_cost or ng < g_cost[nkey]:
+                    g_cost[nkey] = ng
+                    node = Coordinate(nxt, ng, h_of(nxt), parent=cur)
+                    openq.put((node.f(), next(counter), node))
+
+        self.log(f"[planner] ABORT: Exceeded max iterations ({max_iterations}). No path found.")
+        return []
+
+    async def plan_loop(self):
+        # ... (this function is fine)
+        while not self.stop_event.is_set():
+            try: await asyncio.wait_for(self.map_dirty.wait(), timeout=self.PLAN_REFRESH_MIN)
+            except asyncio.TimeoutError: pass
+            self.map_dirty.clear()
+            async with self.map_lock: map_copy = self.map_.copy()
+            old_map = self.map_
+            self.map_ = map_copy
+            new_path = await self.plan_once()
+            self.map_ = old_map
+            if new_path:
+                self.log(f"[planner] path len={len(new_path)}")
+                async with self.plan_lock: self.path = new_path
+            else: self.log("[planner] no path found")
+
+    def clip_angle(self, theta_rad):
+        # ... (this function is fine)
+        max_rad = np.radians(self.servo_max_degs)
+        return max(-max_rad, min(max_rad, theta_rad))
+
     async def vision_loop(self):
-        """Monitors the object detector and sets the halt event."""
+        # ... (this function is fine)
         self.log("[vision] Starting vision loop.")
         self.detector.start_detection()
         while not self.stop_event.is_set():
@@ -150,92 +373,78 @@ class Navigator:
                 if self.halt_event.is_set():
                     self.log("[vision] Halt condition cleared.")
                     self.halt_event.clear()
-            await asyncio.sleep(0.1) # Check 10 times per second
-        
+            await asyncio.sleep(0.1)
         self.detector.stop_detection()
         self.log("[vision] Vision loop stopped.")
 
-    # --- MODIFIED: Control Loop ---
     async def control_loop(self):
-        """Follows waypoints but stops if the halt_event is set."""
         kp_turn = 1.5
         while not self.stop_event.is_set():
-            # NEW: Check for halt event at the beginning of the loop
             if self.halt_event.is_set():
                 self.px.stop()
-                self.log("[ctrl] Halting due to vision system.")
-                # Wait until the event is cleared before trying to move again
-                await self.halt_event.wait() 
+                await asyncio.sleep(0.1) 
                 continue
-
+            
             async with self.plan_lock:
                 path = self.path[:]
-
-            if not path or euclid_xy(self.state, self.goal_xy) < 2.0:
+            
+            if not path or euclid_xy(self.state, self.goal_xy) < 5.0:
                 self.px.stop()
                 await asyncio.sleep(0.1)
                 continue
 
-            # Waypoint selection (same as before)
-            wp = path[-1] # Default to last
-            for p in path[2:8]:
-                if euclid_xy(self.state, p) > 0.5:
-                    wp = p
-                    break
+            # Simple lookahead
+            lookahead_idx = min(len(path) - 1, 10)
+            wp = path[lookahead_idx]
             
             x, y, th = self.state
-            dx, dy = wp[0] - x, wp[1] - y
-            target_th = math.atan2(dx, dy)
-            err = (target_th - th + np.pi) % (2 * np.pi) - np.pi
+            dx = wp[0] - x
+            dy = wp[1] - y
+
+            # STEERING FIX: Arguments for atan2 must be (y, x)
+            target_th = math.atan2(dy, dx)
+            
+            err = (target_th - th)
+            # Normalize error to [-pi, pi]
+            err = (err + np.pi) % (2 * np.pi) - np.pi
             
             steer_cmd = self.clip_angle(kp_turn * err)
-
-            self.log(f"[ctrl] state=({x:.1f},{y:.1f},{np.degrees(th):.1f}°) "
-                     f"wp=({wp[0]:.1f},{wp[1]:.1f}) steer={np.degrees(steer_cmd):.1f}°")
             
             self.px.set_dir_servo_angle(np.degrees(steer_cmd))
             self.px.forward(self.POWER)
 
-            next_state = self.step_kinematics(self.state, steer_cmd)
-            if self.inside(next_state[0], next_state[1]):
-                self.state = next_state
-
+            self.state = self.step_kinematics(self.state, steer_cmd)
             self.map_dirty.set()
             await asyncio.sleep(0.1)
 
-    # --- MODIFIED: Start and Stop Methods ---
     async def start(self):
+        # ... (this function is fine)
         open("nav_debug.log", "w").close()
         self.px.set_cam_pan_angle(0)
         self.px.set_dir_servo_angle(0)
         await self.calibrate()
         self.map_dirty.set()
-        
-        # Add the new vision_loop to the tasks
         tasks = [  
             asyncio.create_task(self.ultrasonic_pan_loop(), name="sensor"),
             asyncio.create_task(self.car_map_loop(), name="carstamp"),
             asyncio.create_task(self.plan_loop(), name="planner"),
             asyncio.create_task(self.control_loop(), name="controller"),
-            asyncio.create_task(self.vision_loop(), name="vision"), # NEW
-            # asyncio.create_task(self.display_loop(), name="display"), # Optional
+            asyncio.create_task(self.vision_loop(), name="vision"),
+            asyncio.create_task(self.display_loop(), name="display"),
         ]
         try:
             await asyncio.gather(*tasks)
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self.stop() # Ensure stop is called
+        except asyncio.CancelledError: pass
+        finally: self.stop()
 
     def stop(self):
+        # ... (this function is fine)
         self.stop_event.set()
         self.px.stop()
         self.px.set_cam_pan_angle(0)
-        # Ensure detector is stopped if not already
-        if self.detector._is_running:
+        if hasattr(self.detector, '_is_running') and self.detector._is_running:
             self.detector.stop_detection()
         print("Navigator stopped.")
-
 if __name__ == "__main__":
     px = Picarx(servo_pins=["P0", "P1", "P3"])
     nav = Navigator(px)

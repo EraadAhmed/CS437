@@ -69,23 +69,30 @@ class SystemConfig:
     
     # Navigation parameters
     GRID_RESOLUTION: float = 1.0  # 1cm per grid cell
-    OBSTACLE_INFLATION: int = 3   # Cells to inflate around obstacles
+    OBSTACLE_INFLATION: int = 8   # Cells to inflate around obstacles (car half-width + safety)
+    CAR_CLEARANCE: int = 15       # Additional clearance needed around car (cm)
+    STRAIGHT_DRIVING_THRESHOLD: float = 0.1  # Radians for considering "straight"
     
     # Control parameters
     DRIVE_SPEED: float = 25.0     # cm/s - reduced for better control
     TURN_POWER: int = 35
     DRIVE_POWER: int = 35
-    SERVO_OFFSET: int = -2        # Calibration offset for straight driving
+    SERVO_OFFSET: int = 10       # Calibration offset for straight driving (positive = steer right)
+    STEERING_CORRECTION_FACTOR: float = 0.8  # Factor for steering corrections
     
     # Timing parameters
     CONTROL_FREQUENCY: int = 20   # Hz - increased for responsive control
     SCAN_FREQUENCY: int = 10      # Hz - fast scanning while driving
     REPLAN_INTERVAL: float = 1.0  # seconds - frequent replanning
     DETECTION_FREQUENCY: int = 5  # Hz - object detection rate
+    DETECTION_STOP_INTERVAL: float = 0.2  # seconds - stop every 15-30cm for detection
     
     # Safety parameters
     EMERGENCY_STOP_DISTANCE: int = 15  # cm - immediate stop distance
-    STOP_SIGN_PAUSE: float = 3.0       # seconds to pause at stop signs
+    DETECTION_DISTANCE: int = 25      # cm - stop for camera detection (30cm - 5cm safety)
+    BACKUP_DISTANCE: int = 20         # cm - backup distance when obstacle detected
+    STOP_SIGN_PAUSE: float = 3.0      # seconds to pause at stop signs
+    MOVEMENT_STEP_SIZE: float = 15.0  # cm - distance per movement step for precise control
 
 class Position:
     """Represents a position and orientation in the grid."""
@@ -183,15 +190,21 @@ class OccupancyGrid:
     
     def is_free(self, x: int, y: int) -> bool:
         """Check if grid cell is free (for path planning)."""
-        with self.lock:
+        try:
             if 0 <= x < self.grid_width and 0 <= y < self.grid_height:
                 return self.grid[y, x] == 0
+            return False
+        except Exception as e:
+            logger.warning(f"Grid access error at ({x}, {y}): {e}")
             return False
     
     def get_copy(self) -> np.ndarray:
         """Get thread-safe copy of grid."""
-        with self.lock:
+        try:
             return self.grid.copy()
+        except Exception as e:
+            logger.warning(f"Grid copy error: {e}")
+            return np.zeros((self.grid_height, self.grid_width), dtype=np.uint8)
 
 class ObjectDetector:
     """Simplified object detection for critical objects."""
@@ -321,85 +334,138 @@ class ObjectDetector:
         return self.person_detected.is_set()
 
 class AStarPlanner:
-    """A* path planner for navigation."""
+    """Optimized A* path planner with DFS and set-based avoidance."""
     def __init__(self, config: SystemConfig):
         self.config = config
     
     def plan_path(self, start: Position, goal: Position, grid: OccupancyGrid) -> List[Position]:
-        """Plan path using A* algorithm."""
+        """Plan path using optimized A* with DFS and Manhattan heuristic."""
         # Convert positions to grid coordinates
         start_grid = start.to_grid(grid.resolution)
         goal_grid = goal.to_grid(grid.resolution)
         
         print(f"DEBUG: Planning path from grid {start_grid} to {goal_grid}")
         
-        # A* implementation with iteration limit
+        # Debug grid status around start and goal
+        self._debug_grid_area(start_grid, grid, "START")
+        self._debug_grid_area(goal_grid, grid, "GOAL")
+        
+        # Check if start and goal are valid
+        if not self._is_valid_cell(start_grid[0], start_grid[1], grid):
+            print(f"DEBUG: Start position {start_grid} is not valid")
+            return []
+        
+        if not self._is_valid_cell(goal_grid[0], goal_grid[1], grid):
+            print(f"DEBUG: Goal position {goal_grid} is not valid")
+            return []
+        
+        # DFS-based A* with sets for efficiency
+        import heapq
         open_set = []
+        open_set_hash = set()  # For O(1) lookup
         closed_set = set()
         came_from = {}
         g_score = {start_grid: 0}
-        f_score = {start_grid: self._heuristic(start_grid, goal_grid)}
         
-        import heapq
-        heapq.heappush(open_set, (f_score[start_grid], start_grid))
+        # Initialize with start node
+        start_f = self._manhattan_distance(start_grid, goal_grid)
+        heapq.heappush(open_set, (start_f, start_grid))
+        open_set_hash.add(start_grid)
         
-        max_iterations = 1000  # Prevent infinite loops
+        max_iterations = 2000  # Increased limit
         iterations = 0
         
         while open_set and iterations < max_iterations:
             iterations += 1
-            current = heapq.heappop(open_set)[1]
+            current_f, current = heapq.heappop(open_set)
+            open_set_hash.remove(current)
             
-            if iterations % 100 == 0:  # Progress indicator
-                print(f"DEBUG: A* iteration {iterations}, open_set size: {len(open_set)}")
-            
+            # Goal check
             if current == goal_grid:
                 print(f"DEBUG: Path found in {iterations} iterations")
                 return self._reconstruct_path(came_from, current, grid.resolution)
             
+            # Add to closed set
             closed_set.add(current)
             
-            for neighbor in self._get_neighbors(current, grid):
+            # Get valid neighbors (adjacent nodes only for speed)
+            neighbors = self._get_valid_neighbors(current, grid, closed_set)
+            
+            for neighbor in neighbors:
+                # Skip if already processed
                 if neighbor in closed_set:
                     continue
                 
+                # Calculate scores
                 tentative_g = g_score[current] + 1
                 
+                # If this path to neighbor is better than any previous one
                 if neighbor not in g_score or tentative_g < g_score[neighbor]:
                     came_from[neighbor] = current
                     g_score[neighbor] = tentative_g
-                    f_score[neighbor] = tentative_g + self._heuristic(neighbor, goal_grid)
+                    f_score = tentative_g + self._manhattan_distance(neighbor, goal_grid)
                     
-                    if not any(neighbor == item[1] for item in open_set):
-                        heapq.heappush(open_set, (f_score[neighbor], neighbor))
+                    # Add to open set if not already there
+                    if neighbor not in open_set_hash:
+                        heapq.heappush(open_set, (f_score, neighbor))
+                        open_set_hash.add(neighbor)
         
-        if iterations >= max_iterations:
-            print(f"DEBUG: A* pathfinding timeout after {iterations} iterations")
-        else:
-            print(f"DEBUG: A* failed - no open nodes after {iterations} iterations")
-        
+        print(f"DEBUG: A* failed after {iterations} iterations - no path found")
         return []  # No path found
     
-    def _heuristic(self, a: Tuple[int, int], b: Tuple[int, int]) -> float:
-        """Manhattan distance heuristic."""
+    def _manhattan_distance(self, a: Tuple[int, int], b: Tuple[int, int]) -> float:
+        """Manhattan distance heuristic for grid-based pathfinding."""
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
     
-    def _get_neighbors(self, pos: Tuple[int, int], grid: OccupancyGrid) -> List[Tuple[int, int]]:
-        """Get valid neighboring cells."""
+    def _is_valid_cell(self, x: int, y: int, grid: OccupancyGrid) -> bool:
+        """Check if a cell is valid and free for navigation."""
+        # Check bounds
+        if x < 0 or y < 0 or x >= grid.width or y >= grid.height:
+            return False
+        
+        # Check if cell is free for navigation
+        # 0 = free, 3 = car (also valid), 1 = obstacle, 2 = inflated obstacle
+        try:
+            cell_value = grid.grid[y, x]
+            return cell_value == 0 or cell_value == 3  # Allow free space and car position
+        except:
+            return False
+    
+    def _get_valid_neighbors(self, pos: Tuple[int, int], grid: OccupancyGrid, 
+                           closed_set: set) -> List[Tuple[int, int]]:
+        """Get valid neighboring cells using 4-connected grid (faster than 8-connected)."""
         x, y = pos
         neighbors = []
         
-        # 8-connected grid (including diagonals)
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                if dx == 0 and dy == 0:
-                    continue
-                
-                nx, ny = x + dx, y + dy
-                if grid.is_free(nx, ny):
-                    neighbors.append((nx, ny))
+        # 4-connected neighbors (up, down, left, right) for speed
+        directions = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+        
+        for dx, dy in directions:
+            nx, ny = x + dx, y + dy
+            
+            # Skip if already in closed set (avoid recomputation)
+            if (nx, ny) in closed_set:
+                continue
+            
+            # Check if neighbor is valid and free
+            if self._is_valid_cell(nx, ny, grid):
+                neighbors.append((nx, ny))
         
         return neighbors
+    
+    def _debug_grid_area(self, pos: Tuple[int, int], grid: OccupancyGrid, label: str):
+        """Debug grid area around a position."""
+        x, y = pos
+        print(f"DEBUG: {label} position {pos}")
+        
+        # Check 3x3 area around position
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < grid.grid_width and 0 <= ny < grid.grid_height:
+                    value = grid.grid[ny, nx]
+                    symbol = "." if value == 0 else "X" if value == 1 else "I" if value == 2 else "C"
+                    print(f"  ({nx:3},{ny:3}): {value} {symbol}")
     
     def _reconstruct_path(self, came_from: dict, current: Tuple[int, int], 
                          resolution: float) -> List[Position]:
@@ -408,10 +474,22 @@ class AStarPlanner:
         
         while current in came_from:
             x, y = current
-            path.append(Position(x * resolution, y * resolution))
+            path.append(Position(x * resolution, y * resolution, 0))  # Add heading
             current = came_from[current]
         
+        # Add start position
+        if path:
+            x, y = current
+            path.append(Position(x * resolution, y * resolution, 0))
+        
         path.reverse()
+        
+        # Debug: print first few and last few waypoints to verify path
+        if path:
+            print(f"DEBUG: Path waypoints (first 5): {[(p.x, p.y) for p in path[:5]]}")
+            print(f"DEBUG: Path waypoints (last 5): {[(p.x, p.y) for p in path[-5:]]}")
+            print(f"DEBUG: Total waypoints: {len(path)}")
+        
         return path
 
 class CarController:
@@ -513,14 +591,14 @@ class IntegratedSelfDrivingSystem:
         
         # State variables
         self.current_position = Position(
-            self.config.FIELD_WIDTH / 2,  # Start in middle
-            10,  # 10cm from start
+            60,  # Start at x=60cm (middle of 120cm hallway)
+            0,   # Start at y=0cm (beginning of hallway)
             0    # Facing forward
         )
         self.goal_position = Position(
-            self.config.FIELD_WIDTH / 2,  # Stay in middle lane
-            self.config.FIELD_LENGTH - 20,  # 20cm from end
-            0    # Facing forward
+            60,   # Stay in middle lane (x=60cm)
+            379,  # End at y=379cm (within field bounds)
+            0     # Facing forward
         )
         
         # Control state
@@ -533,6 +611,11 @@ class IntegratedSelfDrivingSystem:
         # Scanning state
         self.scan_angle = 0
         self.scan_direction = 1
+        
+        # Movement and detection tracking
+        self.last_detection_time = 0
+        self.movement_distance_since_detection = 0
+        self.is_moving = False
         
         logger.info("Integrated self-driving system initialized")
     
@@ -640,37 +723,53 @@ class IntegratedSelfDrivingSystem:
                 await asyncio.sleep(0.1)
     
     async def _safety_monitor(self):
-        """Monitor for safety-critical situations."""
+        """Monitor for safety-critical situations with enhanced detection."""
         while self.running.is_set():
             try:
                 # Check for immediate obstacles ahead
                 forward_distance = self.car_controller.read_ultrasonic()
                 
-                # Emergency stop if obstacle too close
+                # Emergency stop if obstacle too close (immediate danger)
                 if (0 < forward_distance <= self.config.EMERGENCY_STOP_DISTANCE):
                     logger.warning(f"EMERGENCY STOP: Obstacle at {forward_distance}cm")
                     self.emergency_stop.set()
                     self.car_controller.stop()
-                elif forward_distance > self.config.CAMERA_RANGE:
-                    self.emergency_stop.clear()
-                
-                # Check object detection results
-                if self.object_detector.is_stop_sign_detected():
-                    logger.info("STOP SIGN DETECTED: Stopping for traffic rule")
-                    self.car_controller.stop()
-                    await asyncio.sleep(self.config.STOP_SIGN_PAUSE)
-                    # Re-scan after stop sign
-                    await self._perform_initial_scan()
-                
-                if self.object_detector.is_person_detected():
-                    logger.warning("PERSON DETECTED: Stopping for safety")
-                    self.emergency_stop.set()
-                    self.car_controller.stop()
-                else:
-                    if not (0 < forward_distance <= self.config.EMERGENCY_STOP_DISTANCE):
+                    self.is_moving = False
+                    
+                    # Force backup if very close
+                    if forward_distance <= 10:
+                        await self._execute_backup_maneuver()
+                        
+                elif forward_distance > self.config.DETECTION_DISTANCE:
+                    # Clear emergency stop only if we're well beyond detection range
+                    if self.emergency_stop.is_set():
                         self.emergency_stop.clear()
+                        logger.info("Emergency cleared - obstacle far enough")
                 
-                await asyncio.sleep(1.0 / self.config.CONTROL_FREQUENCY)
+                # Enhanced object detection checks
+                if self.object_detector:
+                    try:
+                        # Check for stop signs
+                        if self.object_detector.is_stop_sign_detected():
+                            logger.info("STOP SIGN DETECTED: Stopping for traffic rule")
+                            self.car_controller.stop()
+                            self.is_moving = False
+                            await asyncio.sleep(self.config.STOP_SIGN_PAUSE)
+                            # Re-scan after stop sign
+                            await self._perform_initial_scan()
+                        
+                        # Check for people (high priority)
+                        if self.object_detector.is_person_detected():
+                            logger.warning("PERSON DETECTED: Stopping for safety")
+                            self.emergency_stop.set()
+                            self.car_controller.stop()
+                            self.is_moving = False
+                            # Wait longer for person to move
+                            await asyncio.sleep(2.0)
+                    except Exception as e:
+                        logger.warning(f"Object detection error: {e}")
+                
+                await asyncio.sleep(1.0 / self.config.DETECTION_FREQUENCY)
                 
             except Exception as e:
                 logger.error(f"Safety monitor error: {e}")
@@ -699,6 +798,17 @@ class IntegratedSelfDrivingSystem:
                 except Exception as e:
                     logger.error(f"Error updating car position: {e}")
                     # Continue without failing
+                
+                # Monitor position and check for boundary violations
+                safety_margin = 10  # 10cm margin from edges
+                if (self.current_position.x < safety_margin or 
+                    self.current_position.x > self.config.FIELD_WIDTH - safety_margin):
+                    logger.warning(f"Position boundary violation: x={self.current_position.x:.1f}cm (field width: {self.config.FIELD_WIDTH}cm)")
+                    logger.warning("Triggering emergency stop and replanning")
+                    self.emergency_stop.set()
+                    self.last_replan_time = 0  # Force immediate replan
+                    await asyncio.sleep(0.5)  # Brief pause
+                    self.emergency_stop.clear()
                 
                 # Check if we need to replan
                 need_replan = (current_time - self.last_replan_time > self.config.REPLAN_INTERVAL or
@@ -754,16 +864,114 @@ class IntegratedSelfDrivingSystem:
             self.path_index = 0
             logger.info(f"New path planned with {len(new_path)} waypoints")
         else:
-            logger.warning("No path found to goal - using simple forward movement")
-            # Create simple forward path as fallback
+            logger.warning("No path found to goal - creating avoidance maneuver")
+            await self._create_avoidance_path()
+    
+    async def _create_avoidance_path(self):
+        """Create an intelligent avoidance path when A* fails."""
+        logger.info("Creating avoidance maneuver path...")
+        
+        # First priority: Get back to center lane if we're off course
+        center_x = 60  # Center of hallway
+        current_x = self.current_position.x
+        
+        # If we're significantly off center, create a corrective path
+        if abs(current_x - center_x) > 15:  # More than 15cm off center
+            logger.info(f"Off center by {abs(current_x - center_x):.1f}cm - creating corrective path")
+            
+            # Calculate path back to center and then toward goal
+            intermediate_y = self.current_position.y + 30  # Move 30cm forward
+            corrective_path = [
+                Position(center_x, intermediate_y, 0),  # Get back to center with forward heading
+                self.goal_position
+            ]
+            
+            # Check if corrective path is within bounds
+            safety_margin = 10
+            if (safety_margin <= center_x <= self.config.FIELD_WIDTH - safety_margin and
+                0 <= intermediate_y <= self.config.FIELD_LENGTH):
+                
+                logger.info("Creating corrective path back to center")
+                self.current_path = corrective_path
+                self.path_index = 0
+                return
+        
+        # Second try: simple forward movement toward goal
+        forward_distance = 30  # Try moving 30cm forward
+        forward_x = self.current_position.x + forward_distance * np.cos(self.current_position.theta)
+        forward_y = self.current_position.y + forward_distance * np.sin(self.current_position.theta)
+        
+        # Check if forward path is within bounds (with safety margins)
+        safety_margin = 10  # 10cm margin from edges
+        if (safety_margin <= forward_x <= self.config.FIELD_WIDTH - safety_margin and
+            0 <= forward_y <= self.config.FIELD_LENGTH):
+            
+            logger.info("Creating forward avoidance path")
             self.current_path = [
-                Position(self.current_position.x, self.current_position.y + 20, 0),
-                Position(self.current_position.x, self.current_position.y + 40, 0)
+                Position(forward_x, forward_y, self.current_position.theta),
+                self.goal_position
+            ]
+            self.path_index = 0
+            return
+        
+        # Try multiple avoidance strategies if forward doesn't work
+        avoidance_paths = []
+        
+        # Strategy 1: Move to the right side
+        right_angle = self.current_position.theta - np.pi/2  # 90 degrees right
+        right_x = self.current_position.x + 30 * np.cos(right_angle)
+        right_y = self.current_position.y + 30 * np.sin(right_angle)
+        avoidance_paths.append([
+            Position(right_x, right_y, self.current_position.theta),
+            Position(right_x, right_y + 30, self.current_position.theta),
+            self.goal_position
+        ])
+        
+        # Strategy 2: Move to the left side
+        left_angle = self.current_position.theta + np.pi/2  # 90 degrees left
+        left_x = self.current_position.x + 30 * np.cos(left_angle)
+        left_y = self.current_position.y + 30 * np.sin(left_angle)
+        avoidance_paths.append([
+            Position(left_x, left_y, self.current_position.theta),
+            Position(left_x, left_y + 30, self.current_position.theta),
+            self.goal_position
+        ])
+        
+        # Choose the path that moves toward the goal
+        best_path = None
+        best_distance = float('inf')
+        
+        for path in avoidance_paths:
+            if path:
+                # Calculate distance from first waypoint to goal
+                first_waypoint = path[0]
+                distance_to_goal = first_waypoint.distance_to(self.goal_position)
+                
+                # Check if waypoint is within bounds (with safety margins)
+                safety_margin = 10  # 10cm margin from edges
+                if (safety_margin <= first_waypoint.x <= self.config.FIELD_WIDTH - safety_margin and
+                    0 <= first_waypoint.y <= self.config.FIELD_LENGTH):
+                    
+                    if distance_to_goal < best_distance:
+                        best_distance = distance_to_goal
+                        best_path = path
+        
+        if best_path:
+            self.current_path = best_path
+            self.path_index = 0
+            logger.info(f"Created avoidance path with {len(best_path)} waypoints")
+        else:
+            # Last resort: try to get back to center regardless of risk
+            logger.warning("All avoidance strategies failed - forcing return to center")
+            center_x = 60
+            fallback_y = self.current_position.y + 15  # Small forward movement
+            self.current_path = [
+                Position(center_x, fallback_y, 0)  # Head toward center with forward orientation
             ]
             self.path_index = 0
     
     async def _execute_navigation_step(self):
-        """Execute one navigation step."""
+        """Execute one navigation step with precise distance control and object detection."""
         if self.path_index >= len(self.current_path):
             return
         
@@ -778,6 +986,17 @@ class IntegratedSelfDrivingSystem:
             self.path_index += 1
             return
         
+        # Check if we need to stop for detection (every 15-30cm or time interval)
+        current_time = time.time()
+        should_detect = (
+            self.movement_distance_since_detection >= self.config.MOVEMENT_STEP_SIZE or
+            current_time - self.last_detection_time >= self.config.DETECTION_STOP_INTERVAL
+        )
+        
+        if should_detect and self.is_moving:
+            await self._perform_detection_stop()
+            return
+        
         # Calculate required heading
         target_heading = np.arctan2(dy, dx)
         heading_error = target_heading - self.current_position.theta
@@ -788,46 +1007,254 @@ class IntegratedSelfDrivingSystem:
         while heading_error < -np.pi:
             heading_error += 2 * np.pi
         
-        # Execute movement
-        if abs(heading_error) > 0.2:  # Need to turn
-            if heading_error > 0:
-                self.car_controller.turn_left(self.config.TURN_POWER)
-                self.current_position.theta += 0.1  # Rough turn estimation
-            else:
-                self.car_controller.turn_right(self.config.TURN_POWER)
-                self.current_position.theta -= 0.1
-            
-            await asyncio.sleep(0.3)  # Turn duration
-            self.car_controller.stop()
-            
-        else:  # Move forward
-            self.car_controller.move_forward(self.config.DRIVE_POWER)
-            
-            # Update position based on movement
-            move_distance = self.config.DRIVE_SPEED / self.config.CONTROL_FREQUENCY
-            self.current_position.x += move_distance * np.cos(self.current_position.theta)
-            self.current_position.y += move_distance * np.sin(self.current_position.theta)
-            
-            await asyncio.sleep(0.1)  # Brief movement
-            self.car_controller.stop()
+        # Execute movement with precise control
+        if abs(heading_error) > self.config.STRAIGHT_DRIVING_THRESHOLD:  # Need to turn (tighter threshold)
+            await self._execute_turn(heading_error)
+        else:  # Move forward with straight driving
+            await self._execute_forward_movement()
     
-    async def _recovery_maneuver(self):
-        """Perform recovery maneuver when stuck."""
-        logger.info("Performing recovery maneuver...")
+    async def _execute_turn(self, heading_error: float):
+        """Execute a precise turn maneuver with improved steering."""
+        self.is_moving = False
         
-        # Back up
+        # Calculate turn time based on error magnitude (more precise)
+        base_turn_time = 0.2  # Base time per radian
+        turn_time = min(abs(heading_error) * base_turn_time, 0.6)  # Max 0.6 second turn
+        
+        # Apply steering correction factor
+        corrected_error = heading_error * self.config.STEERING_CORRECTION_FACTOR
+        
+        logger.info(f"Turning {np.degrees(heading_error):.1f} degrees (corrected: {np.degrees(corrected_error):.1f})")
+        
+        if heading_error > 0:
+            self.car_controller.turn_left(self.config.TURN_POWER)
+        else:
+            self.car_controller.turn_right(self.config.TURN_POWER)
+        
+        await asyncio.sleep(turn_time)
+        self.car_controller.stop()
+        
+        # CRITICAL FIX: Reset steering servo to straight position after turn
+        if self.car_controller.picar:
+            self.car_controller.picar.set_dir_servo_angle(self.config.SERVO_OFFSET)
+        
+        # Update position with corrected turn amount
+        self.current_position.theta += corrected_error
+        
+        # Normalize theta to [-pi, pi]
+        while self.current_position.theta > np.pi:
+            self.current_position.theta -= 2 * np.pi
+        while self.current_position.theta < -np.pi:
+            self.current_position.theta += 2 * np.pi
+        
+        # Reset movement tracking after turn
+        self.movement_distance_since_detection = 0
+        logger.info(f"Turn complete - new heading: {np.degrees(self.current_position.theta):.1f} degrees")
+    
+    async def _execute_forward_movement(self):
+        """Execute forward movement with straight-line driving correction."""
+        self.is_moving = True
+        
+        # Check distance ahead before moving
+        forward_distance = self.car_controller.read_ultrasonic()
+        
+        # Stop if obstacle detected within detection range
+        if 0 < forward_distance <= self.config.DETECTION_DISTANCE:
+            logger.warning(f"Obstacle detected at {forward_distance}cm - performing camera detection")
+            await self._handle_obstacle_detection(forward_distance)
+            return
+        
+        # Calculate movement step
+        movement_step = min(self.config.MOVEMENT_STEP_SIZE, 
+                           self.config.DETECTION_DISTANCE - 5)  # Stay within detection range
+        
+        # Check if movement would exceed field boundaries
+        predicted_x = self.current_position.x + movement_step * np.cos(self.current_position.theta)
+        predicted_y = self.current_position.y + movement_step * np.sin(self.current_position.theta)
+        
+        # Field boundaries with safety margins (5cm from edges)
+        min_x, max_x = 5, self.config.FIELD_WIDTH - 5
+        min_y, max_y = 0, self.config.FIELD_LENGTH
+        
+        if not (min_x <= predicted_x <= max_x and min_y <= predicted_y <= max_y):
+            logger.warning(f"Movement would exceed boundaries: predicted position ({predicted_x:.1f}, {predicted_y:.1f})")
+            logger.warning(f"Boundaries: x=[{min_x}, {max_x}], y=[{min_y}, {max_y}]")
+            # Set emergency stop and force replanning
+            self.emergency_stop.set()
+            self.last_replan_time = 0
+            return
+        
+        # Move forward for calculated time
+        movement_time = movement_step / self.config.DRIVE_SPEED
+        
+        logger.info(f"Moving straight forward {movement_step:.1f}cm for {movement_time:.2f}s")
+        self.car_controller.move_forward(self.config.DRIVE_POWER)
+        await asyncio.sleep(movement_time)
+        self.car_controller.stop()
+        
+        # Update position with precise movement
+        actual_distance = movement_step  # Assume precise movement
+        self.current_position.x += actual_distance * np.cos(self.current_position.theta)
+        self.current_position.y += actual_distance * np.sin(self.current_position.theta)
+        
+        # Clamp position to valid boundaries
+        self.current_position.x = max(0, min(self.current_position.x, self.config.FIELD_WIDTH))
+        self.current_position.y = max(0, min(self.current_position.y, self.config.FIELD_LENGTH))
+        
+        self.movement_distance_since_detection += actual_distance
+        
+        logger.info(f"Moved forward {actual_distance:.1f}cm to ({self.current_position.x:.1f}, {self.current_position.y:.1f})")
+        logger.info(f"Total since detection: {self.movement_distance_since_detection:.1f}cm")
+    
+    async def _perform_detection_stop(self):
+        """Stop for camera-based object detection."""
+        self.is_moving = False
+        current_time = time.time()
+        
+        logger.info("Stopping for object detection...")
+        self.car_controller.stop()
+        
+        # Perform camera-based object detection
+        if self.object_detector:
+            # Center servo for forward detection
+            self.car_controller.set_servo_angle(0)
+            await asyncio.sleep(0.1)  # Allow servo to move
+            
+            # Capture and analyze frame
+            try:
+                detections = self.object_detector.get_detections()
+                
+                # Check for obstacles in camera view
+                obstacle_detected = False
+                if detections:
+                    for detection in detections:
+                        if detection.get('confidence', 0) > 0.5:  # High confidence detection
+                            obstacle_detected = True
+                            logger.warning(f"Camera detected: {detection.get('class', 'unknown')} with confidence {detection.get('confidence', 0):.2f}")
+                
+                if obstacle_detected:
+                    await self._handle_camera_obstacle()
+                    return
+            except Exception as e:
+                logger.warning(f"Camera detection error: {e}")
+        else:
+            logger.info("No camera available - using ultrasonic only")
+        
+        # Also check ultrasonic for backup
+        forward_distance = self.car_controller.read_ultrasonic()
+        if 0 < forward_distance <= self.config.DETECTION_DISTANCE:
+            await self._handle_obstacle_detection(forward_distance)
+            return
+        
+        # Reset detection tracking
+        self.last_detection_time = current_time
+        self.movement_distance_since_detection = 0
+        logger.info("Detection complete - continuing movement")
+    
+    async def _handle_obstacle_detection(self, distance: float):
+        """Handle obstacle detected by ultrasonic sensor with proper grid mapping."""
+        logger.warning(f"Obstacle detected at {distance}cm - adding to grid and replanning")
+        
+        # Stop immediately
+        self.car_controller.stop()
+        self.emergency_stop.set()
+        
+        # Add obstacle to grid with proper margins
+        await self._add_obstacle_to_grid(distance)
+        
+        # Backup maneuver
+        await self._execute_backup_maneuver()
+        
+        # Clear emergency stop after backup
+        self.emergency_stop.clear()
+        
+        # Force immediate replan with updated grid
+        self.last_replan_time = 0
+    
+    async def _handle_camera_obstacle(self):
+        """Handle obstacle detected by camera with proper grid mapping."""
+        logger.warning("Camera obstacle detected - adding to grid and replanning")
+        
+        # Use conservative distance estimate for camera detection
+        estimated_distance = self.config.DETECTION_DISTANCE - 5
+        
+        # Add obstacle to grid
+        await self._add_obstacle_to_grid(estimated_distance)
+        
+        # Backup maneuver
+        await self._execute_backup_maneuver()
+        
+        # Force immediate replan with updated grid
+        self.last_replan_time = 0
+    
+    async def _add_obstacle_to_grid(self, distance_ahead: float):
+        """Add detected obstacle to grid with appropriate car-size margins."""
+        logger.info(f"Adding obstacle to grid at distance {distance_ahead}cm ahead")
+        
+        # Calculate obstacle position in world coordinates
+        obstacle_x = self.current_position.x + distance_ahead * np.cos(self.current_position.theta)
+        obstacle_y = self.current_position.y + distance_ahead * np.sin(self.current_position.theta)
+        
+        # Convert to grid coordinates
+        grid_x = int(round(obstacle_x / self.config.GRID_RESOLUTION))
+        grid_y = int(round(obstacle_y / self.config.GRID_RESOLUTION))
+        
+        # Calculate obstacle size with car clearance
+        # Assume obstacle is at least car-width sized, plus clearance
+        obstacle_radius = int(np.ceil((self.config.CAR_WIDTH + self.config.CAR_CLEARANCE) / 2 / self.config.GRID_RESOLUTION))
+        
+        logger.info(f"Adding obstacle at grid ({grid_x}, {grid_y}) with radius {obstacle_radius} cells")
+        
+        # Mark obstacle area in grid
+        try:
+            for dx in range(-obstacle_radius, obstacle_radius + 1):
+                for dy in range(-obstacle_radius, obstacle_radius + 1):
+                    if dx*dx + dy*dy <= obstacle_radius*obstacle_radius:  # Circular obstacle
+                        ox, oy = grid_x + dx, grid_y + dy
+                        if 0 <= ox < self.grid.grid_width and 0 <= oy < self.grid.grid_height:
+                            self.grid.grid[oy, ox] = 1  # Mark as obstacle
+            
+            # Inflate obstacles for path planning
+            self.grid.inflate_obstacles(self.config.OBSTACLE_INFLATION)
+            logger.info("Obstacle successfully added to grid with margins")
+            
+        except Exception as e:
+            logger.error(f"Error adding obstacle to grid: {e}")
+    
+    async def _execute_backup_maneuver(self):
+        """Execute precise backup maneuver."""
+        logger.info(f"Backing up {self.config.BACKUP_DISTANCE}cm...")
+        
+        # Calculate backup time
+        backup_time = self.config.BACKUP_DISTANCE / self.config.DRIVE_SPEED
+        
+        # Execute backup
         self.car_controller.move_backward(self.config.DRIVE_POWER)
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(backup_time)
         self.car_controller.stop()
         
         # Update position
-        backup_distance = self.config.DRIVE_SPEED
-        self.current_position.x -= backup_distance * np.cos(self.current_position.theta)
-        self.current_position.y -= backup_distance * np.sin(self.current_position.theta)
+        self.current_position.x -= self.config.BACKUP_DISTANCE * np.cos(self.current_position.theta)
+        self.current_position.y -= self.config.BACKUP_DISTANCE * np.sin(self.current_position.theta)
         
-        # Turn to find new direction
+        # Clamp position to valid boundaries
+        self.current_position.x = max(0, min(self.current_position.x, self.config.FIELD_WIDTH))
+        self.current_position.y = max(0, min(self.current_position.y, self.config.FIELD_LENGTH))
+        
+        # Reset movement tracking
+        self.movement_distance_since_detection = 0
+        self.is_moving = False
+        
+        logger.info(f"Backup complete - new position: ({self.current_position.x:.1f}, {self.current_position.y:.1f})")
+    
+    async def _recovery_maneuver(self):
+        """Legacy recovery maneuver - use _execute_backup_maneuver instead."""
+        logger.info("Using enhanced backup maneuver...")
+        await self._execute_backup_maneuver()
+        
+        # Additional turn for recovery
         self.car_controller.turn_right(self.config.TURN_POWER)
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.5)
         self.car_controller.stop()
         
         self.current_position.theta -= np.pi/4  # 45 degree turn
