@@ -7,6 +7,7 @@ from picamera2 import Picamera2
 from picarx import Picarx
 import itertools
 import os 
+from scipy.ndimage import zoom
 
 
 # ---------------------------
@@ -150,17 +151,14 @@ class Navigator:
 
 
     async def map_obstacle(self, x, y):
+        """Mark a single obstacle cell if inside map bounds."""
         ix, iy = int(round(x)), int(round(y))
         if not self.inside(ix, iy):
             return
-        pad = max(1, self.CAR_W_SCALED // 2)   # simple clearance
         async with self.map_lock:
-            for yy in range(iy - pad, iy + pad + 1):
-                for xx in range(ix - pad, ix + pad + 1):
-                    if 0 <= xx < self.WIDTH_C and 0 <= yy < self.LENGTH_R:
-                        if self.map_[yy, xx] != 1:
-                            self.map_[yy, xx] = 1
-            self.map_dirty.set()`
+            if self.map_[iy, ix] != 1:
+                self.map_[iy, ix] = 1
+                self.map_dirty.set()
 
 
     async def clear_car(self):
@@ -290,24 +288,27 @@ class Navigator:
     # ---------------------------
 
     async def display_loop(self):
-        """Write map to a log file so you can view it in another terminal with `watch`."""
+        """Write downsampled map to a log file for easier viewing."""
         log_path = "display.log"
 
-        # Create the file (truncate if it exists)
+        factor = 1/2.0  # shrink by 5x
         with open(log_path, "w") as f:
             while not self.stop_event.is_set():
-                lines = []
                 async with self.map_lock:
-                    h, w = self.map_.shape
-                    for yy in range(h):
-                        row = self.map_[yy]
-                        line = "".join(
-                            ". " if val == 0 else "X " if val == 1 else "C "
-                            for val in row
-                        )
-                        lines.append(line)
+                    # downsample using nearest-neighbor
+                    small_map = zoom(self.map_, zoom=factor, order=0)
 
-                # Rewind and overwrite file contents
+                lines = []
+                h, w = small_map.shape
+                for yy in range(h):
+                    row = small_map[yy]
+                    line = "".join(
+                        ". " if val == 0 else "X " if val == 1 else "C "
+                        for val in row
+                    )
+                    lines.append(line)
+
+                # Rewind and overwrite file
                 f.seek(0)
                 f.truncate(0)
                 f.write("\n".join(lines) + "\n")
@@ -351,32 +352,43 @@ class Navigator:
         return np.radians(nearest)
 
     def step_kinematics(self, current_state, steer_angle):
-    # Kinematic update for a bicycle model; returns (x, y, theta) after dt.
         """
-        Update position based on velocity and heading.
-        current_pos: [x, y]
-        velocity: units/sec (e.g. cm/sec)
-        heading_angle: radians (0 = facing east, pi/2 = north)
-        dt: time since last update
+        Bicycle model kinematics.
+        state = (x, y, theta)
+        steer_angle: radians
+        Returns (new_x, new_y, new_theta).
         """
-        d = self.speed_scaled * self.dt_scaled
-        beta = d  * np.tan(steer_angle)/self.CAR_L_SCALED # angular change
-        if np.abs(beta) < 0.001: #straight line approx
-            dx = d * np.sin(current_state[2])
-            dy = d * np.cos(current_state[2])
+        x, y, theta = current_state
+        d = self.speed_scaled * self.dt_scaled  # distance traveled in this step
+
+        if abs(steer_angle) < 1e-3:  # ~straight line
+            new_x = x + d * math.cos(theta)
+            new_y = y + d * math.sin(theta)
+            new_theta = theta
         else:
-            R = d / beta  # radius of curvature
-            dx = R * np.sin(current_state[2] + beta)
-            dy = -1*R * np.cos(current_state[2] + beta)
-        new_x = current_state[0]  + dx
-        new_y = current_state[1] + dy
-        
-        new_head_angle = (current_state[2] + beta) % (2 * np.pi)  # Normalize angle
-        nearest = self.snap_angle(new_head_angle)
-        self.log(f"[step] from=({current_state[0]:.1f},{current_state[1]:.1f},{np.degrees(current_state[2]):.1f}°) "
-          f"-> to=({new_x:.1f},{new_y:.1f},{np.degrees(nearest):.1f}°) "
-          f"d={d:.2f}, steer={np.degrees(steer_angle):.1f}°")
+            R = self.CAR_L_SCALED / math.tan(steer_angle)   # turning radius
+            beta = d / R                                   # heading change
+
+            # Instantaneous center of rotation (ICC)
+            cx = x - R * math.sin(theta)
+            cy = y + R * math.cos(theta)
+
+            # Rotate around ICC by beta
+            new_x = cx + R * math.sin(theta + beta)
+            new_y = cy - R * math.cos(theta + beta)
+            new_theta = theta + beta
+
+        # Normalize and snap heading
+        new_theta = new_theta % (2 * math.pi)
+        nearest = self.snap_angle(new_theta)
+
+        self.log(
+            f"[step] from=({x:.1f},{y:.1f},{math.degrees(theta):.1f}°) "
+            f"-> to=({new_x:.1f},{new_y:.1f},{math.degrees(nearest):.1f}°) "
+            f"d={d:.2f}, steer={math.degrees(steer_angle):.1f}°"
+        )
         return (new_x, new_y, nearest)
+
 
     def reconstruct(self, node):
         out = []
@@ -385,59 +397,69 @@ class Navigator:
             node = node.parent
         return list(reversed(out))
 
-    def plan_once(self):
-        """Hybrid A* with heading bins limited to ±30°."""
-        start = tuple(self.state)                   # (x, y, theta)
-        goal = (self.goal_xy[0], self.goal_xy[1], 0.0)
+    async def plan_once(self):
+        """Hybrid A* with heading bins limited to ±30°, forward-only, cell-keyed."""
+        start = tuple(self.state)                   # (x, y, th) floats
+        goal_xy = self.goal_xy                      # (gx, gy)
         counter = itertools.count()
-        # Early exit
-        if (start[0], start[1]) == self.goal_xy:
+
+        def key_of(state):
+            x, y, _ = state
+            return (int(round(x)), int(round(y)))
+
+        # already at goal cell?
+        if key_of(start) == goal_xy:
             return [start]
 
-        g_cost_key = {(start): 0.0}
         openq = PriorityQueue()
-        g = 0
-        h = euclid_xy(start, goal)
-        start_node = Coordinate(start, g, h= h, parent=None)
+        g_cost = { key_of(start): 0.0 }
+
+        # simple Euclidean heuristic to goal cell-center
+        def h_of(state):
+            sx, sy, _ = state
+            gx, gy = goal_xy
+            return math.hypot(sx - gx, sy - gy)
+
+        start_node = Coordinate(start, 0.0, h=h_of(start), parent=None)
         openq.put((start_node.f(), next(counter), start_node))
 
         closed = set()
-
-        # Steering controls in degrees
         STEERS = [-30, -20, -10, 0, 10, 20, 30]
 
         while not openq.empty():
-            current_f,_, current_node = openq.get()
-            ix, iy = int(round(current_node.state[0])), int(round(current_node.state[1]))
-            if (ix, iy) == self.goal_xy:
-                return self.reconstruct(current_node)
+            _, _, cur = openq.get()
+            ckey = key_of(cur.state)
 
-            if current_node in closed:
+            if ckey in closed:
                 continue
-            closed.add(current_node.state)
-            for control in [-30, -20, -10, 0, 10, 20, 30]:
-                next_state = self.step_kinematics(current_node.state, np.radians(control))
+            closed.add(ckey)
 
-                #forward check 
-                dx = next_state[0] - current_node.state[0]
-                dy = next_state[1] - current_node.state[1]
-                forward = dx * math.sin(current_node.state[2]) + dy * math.cos(current_node.state[2])
-                if forward <= 0:
+            gx, gy = goal_xy
+            if abs(cur.state[0] - gx) <= 3.0 and abs(cur.state[1] - gy) <= 3.0:
+                return self.reconstruct(cur)
+
+            for control in STEERS:
+                nxt = self.step_kinematics(cur.state, np.radians(control))
+
+                # forward-only filter (dot product with heading)
+                dx = nxt[0] - cur.state[0]
+                dy = nxt[1] - cur.state[1]
+                forward = dx * math.sin(cur.state[2]) + dy * math.cos(cur.state[2])
+                self.log(f"[plan] control={control}°, dx={dx:.2f}, dy={dy:.2f}, fwd={forward:.2f}")
+                if forward < 1e-3:   # instead of <=0
                     continue
 
-                if next_state in closed:
+                nkey = key_of(nxt)
+
+                # prune invalid or blocked
+                if not self.boundary_ok(nxt) or self.collision(nxt):
                     continue
 
-                if not self.boundary_ok(next_state) or self.collision(next_state):
-                    continue
-
-                ng = current_node.g + euclid_xy(current_node.state, next_state)
-                nh = euclid_xy(next_state, goal)
-                if (next_state not in g_cost_key) or (ng < g_cost_key[next_state]):
-                    g_cost_key[next_state] = ng
-                    next_node = Coordinate(next_state, ng, nh, parent= current_node)
-                    openq.put((next_node.f(), next(counter), next_node))
-
+                ng = cur.g + euclid_xy(cur.state, nxt)
+                if nkey not in g_cost or ng < g_cost[nkey]:
+                    g_cost[nkey] = ng
+                    node = Coordinate(nxt, ng, h_of(nxt), parent=cur)
+                    openq.put((node.f(), next(counter), node))
 
         return []
 
@@ -549,15 +571,25 @@ class Navigator:
     async def start(self):
         # Center camera
         open("nav_debug.log", "w").close() # clear log
+        open("display.log", "w").close() # clear log
         self.px.set_cam_pan_angle(0)
         self.px.set_dir_servo_angle(0)
         # Do one initial calibration sweep
         await self.calibrate()
         self.map_dirty.set()
+            # ---- Plan once here ----
+        self.log("[start] Planning initial path...")
+        new_path = self.plan_once()
+        if new_path:
+            self.log(f"[start] path len={len(new_path)}")
+            async with self.plan_lock:
+                self.path = new_path
+        else:
+            self.log("[start] no path found")
         tasks = [  
-            asyncio.create_task(self.ultrasonic_pan_loop(), name="sensor"),
+            #asyncio.create_task(self.ultrasonic_pan_loop(), name="sensor"),
             asyncio.create_task(self.car_map_loop(), name="carstamp"),
-            asyncio.create_task(self.plan_loop(), name="planner"),
+            #asyncio.create_task(self.plan_loop(), name="planner"),
             asyncio.create_task(self.control_loop(), name="controller"),
             asyncio.create_task(self.display_loop(), name="display"),
         ]
