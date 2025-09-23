@@ -45,11 +45,11 @@ class SystemConfig:
     OBSTACLE_INFLATION: int = 4   # Grid cells to inflate around obstacles
     
     # Movement - CALIBRATED VALUES
-    SERVO_OFFSET: int = 0         # Hardware fixed: no adjustment needed
+    SERVO_OFFSET: int = 0         
     DRIVE_SPEED: float = 25.0     # cm/s
     DRIVE_POWER: int = 35
     TURN_POWER: int = 35
-    DRIFT_CORRECTION_FACTOR: float = 0.95
+    DRIFT_CORRECTION_FACTOR: float = 1.0
     
     # Safety
     EMERGENCY_STOP_DISTANCE: int = 15
