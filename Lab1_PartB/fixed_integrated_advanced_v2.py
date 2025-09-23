@@ -37,7 +37,25 @@ class MapVisualizer:
         self.BLUE = '\033[94m'     # Car position
         self.YELLOW = '\033[93m'   # Goal
         self.CYAN = '\033[96m'     # Path
-        self.MAGENTA = '\033[95m'  # Inflated obstacles
+        self.MAGENTA = '\033[95m'  # Inflated obstacles\
+
+                #pan stuff
+        self.PAN_ANGLE = 60  # degrees
+        self.SENSOR_REFRESH = 0.2  # seconds between sensor reads
+        self.MAXREAD = 100  # cm - max valid ultrasonic reading
+
+        # Map and sensor parameters
+        self.stop_event = asyncio.Event()
+        self.map_lock = asyncio.Lock()
+        self.map_dirty = asyncio.Event()
+        self.plan_lock = asyncio.Lock()
+        self.halt_event = asyncio.Event()
+        self.SENSOR_REFRESH = 0.10
+        self.DISPLAY_REFRESH = 0.20
+        self.CAR_DISPLAY_REFRESH = 0.10
+        self.PLAN_REFRESH_MIN = 0.5
+        self.map_ = np.zeros((self.FIELD_LENGTH, self.FIELD_WIDTH), dtype=np.uint8)
+        self.flag = 0 
         
     def clear_screen(self):
         """Clear terminal screen."""
@@ -76,51 +94,37 @@ class MapVisualizer:
         # Print header with statistics
         obstacle_count = np.sum(grid == 1)
         free_count = np.sum(grid == 0)
-        print(f"\nAUTONOMOUS CAR MAPPING SYSTEM")
-        print(f"Car: ({car_pos.x:.1f}, {car_pos.y:.1f}) @ {math.degrees(car_pos.theta):.1f} degrees")
-        print(f"Goal: ({goal_pos.x:.1f}, {goal_pos.y:.1f})")
-        print(f"Map: {obstacle_count} obstacles, {free_count} free cells")
+        print(f"\n🗺️  AUTONOMOUS CAR MAPPING SYSTEM")
+        print(f"📍 Car: ({car_pos.x:.1f}, {car_pos.y:.1f}) @ {math.degrees(car_pos.theta):.1f}°")
+        print(f"🎯 Goal: ({goal_pos.x:.1f}, {goal_pos.y:.1f})")
+        print(f"📊 Map: {obstacle_count} obstacles, {free_count} free cells")
         if scan_angle is not None:
-            print(f"Scanning: {scan_angle:.0f} degrees (360 degree environmental scan)")
-        
-        # Show display window coordinates
-        car_grid_x, car_grid_y = int(car_pos.x / self.resolution), int(car_pos.y / self.resolution)
-        display_start_x = max(0, car_grid_x - 30)
-        display_end_x = min(self.grid_width, display_start_x + 60)
-        display_start_y = max(0, car_grid_y - 12)
-        display_end_y = min(self.grid_height, display_start_y + 25)
-        
-        if display_end_x - display_start_x < 60:
-            display_start_x = max(0, display_end_x - 60)
-        if display_end_y - display_start_y < 25:
-            display_start_y = max(0, display_end_y - 25)
-            
-        print(f"View: X[{display_start_x * self.resolution:.0f}-{display_end_x * self.resolution:.0f}cm] Y[{display_start_y * self.resolution:.0f}-{display_end_y * self.resolution:.0f}cm]")
+            print(f"📡 Scanning: {scan_angle:.0f}° (360° environmental scan)")
         print("=" * 60)
         
-        # Print map with colors using calculated display window
-        for y in range(display_start_y, display_end_y):
-            for x in range(display_start_x, display_end_x):
+        # Print map with colors
+        for y in range(min(25, self.grid_height)):  # Limit display size
+            for x in range(min(60, self.grid_width)):
                 cell_value = display_grid[y, x] if y < self.grid_height and x < self.grid_width else 0
                 
                 if cell_value == 1:    # Obstacle
-                    print(f"{self.RED}###{self.RESET}", end="")
+                    print(f"{self.RED}██{self.RESET}", end="")
                 elif cell_value == 2:  # Inflated obstacle
-                    print(f"{self.MAGENTA}++{self.RESET}", end="")
+                    print(f"{self.MAGENTA}▓▓{self.RESET}", end="")
                 elif cell_value == 3:  # Car
-                    print(f"{self.BLUE}[C]{self.RESET}", end="")
+                    print(f"{self.BLUE}🚗{self.RESET}", end="")
                 elif cell_value == 4:  # Goal
-                    print(f"{self.YELLOW}[G]{self.RESET}", end="")
+                    print(f"{self.YELLOW}🎯{self.RESET}", end="")
                 elif cell_value == 5:  # Path
-                    print(f"{self.CYAN}..{self.RESET}", end="")
+                    print(f"{self.CYAN}··{self.RESET}", end="")
                 else:                  # Free space
                     print(f"{self.GREEN}  {self.RESET}", end="")
             print()  # New line
         
         # Print legend
         print("=" * 60)
-        print(f"Legend: {self.RED}###{self.RESET}=Obstacles {self.MAGENTA}++{self.RESET}=Danger Zone " +
-              f"{self.BLUE}[C]{self.RESET}=Car {self.YELLOW}[G]{self.RESET}=Goal {self.CYAN}..{self.RESET}=Path")
+        print(f"Legend: {self.RED}██{self.RESET}=Obstacles {self.MAGENTA}▓▓{self.RESET}=Danger Zone " +
+              f"{self.BLUE}🚗{self.RESET}=Car {self.YELLOW}🎯{self.RESET}=Goal {self.CYAN}··{self.RESET}=Path")
         print("=" * 60)
 
 @dataclass
@@ -176,7 +180,7 @@ class Position:
         return (int(round(self.x / resolution)), int(round(self.y / resolution)))
     
     def __repr__(self):
-        return f"Position({self.x:.1f}, {self.y:.1f}, {math.degrees(self.theta):.1f} degrees)"
+        return f"Position({self.x:.1f}, {self.y:.1f}, {math.degrees(self.theta):.1f}°)"
 
 class OccupancyGrid:
     """Thread-safe occupancy grid with proper coordinate handling."""
@@ -216,7 +220,7 @@ class OccupancyGrid:
                         self.grid[ny, nx] = 3
     
     def inflate_obstacles(self, radius: int):
-        """Inflate obstacles for path planning - only inflate sides and forward, not backward."""
+        """Inflate obstacles for path planning."""
         with self.lock:
             # Clear previous inflation
             self.grid[self.grid == 2] = 0
@@ -224,21 +228,14 @@ class OccupancyGrid:
             # Find obstacles
             obstacles = np.where(self.grid == 1)
             
-            # Inflate each obstacle with directional awareness
+            # Inflate each obstacle
             for oy, ox in zip(obstacles[0], obstacles[1]):
-                # For car navigation, inflate:
-                # - Full radius to the sides (left/right)
-                # - Forward direction (ahead of obstacle)
-                # - Minimal backward inflation (just 1-2 cells for safety)
-                
-                for dy in range(-2, radius + 1):  # Minimal backward (-2), full forward (radius)
-                    for dx in range(-radius, radius + 1):  # Full lateral inflation
+                for dy in range(-radius, radius + 1):
+                    for dx in range(-radius, radius + 1):
                         nx, ny = ox + dx, oy + dy
                         if (0 <= nx < self.grid_width and 0 <= ny < self.grid_height and
                             self.grid[ny, nx] == 0):
-                            # Only inflate if not too far behind the obstacle
-                            if dy >= -2:  # Allow some backward padding for safety
-                                self.grid[ny, nx] = 2
+                            self.grid[ny, nx] = 2
     
     def is_free(self, x: int, y: int) -> bool:
         """Check if grid cell is free for navigation."""
@@ -440,7 +437,7 @@ class AdvancedSelfDrivingSystem:
         
         **VIDEO DEMO POINT**: Environmental scanning and obstacle detection
         Line numbers: ~370-420 in AdvancedSelfDrivingSystem class
-        Shows: Real-time map building, obstacle detection, 360 degree scanning
+        Shows: Real-time map building, obstacle detection, 360° scanning
         """
         logger.info("Performing initial environmental scan...")
         
@@ -479,12 +476,12 @@ class AdvancedSelfDrivingSystem:
                     obs_y = self.current_position.y + distance * math.cos(sensor_angle)
                     
                     self.grid.add_obstacle(obs_x, obs_y)
-                    logger.info(f"SCAN {angle:+3d} degrees: Obstacle detected at {distance:.1f}cm -> ({obs_x:.1f}, {obs_y:.1f})")
+                    logger.info(f"📡 Scan {angle:+3d}°: Obstacle detected at {distance:.1f}cm -> ({obs_x:.1f}, {obs_y:.1f})")
                     
                     # Update display immediately when obstacle is found
                     await asyncio.sleep(0.5)  # Pause to show detection
                 else:
-                    logger.info(f"SCAN {angle:+3d} degrees: Clear ({distance:.1f}cm)")
+                    logger.info(f"📡 Scan {angle:+3d}°: Clear ({distance:.1f}cm)")
                     
             except Exception as e:
                 logger.warning(f"Scan error at angle {angle}: {e}")
@@ -506,7 +503,7 @@ class AdvancedSelfDrivingSystem:
             self.goal_position
         )
         
-        logger.info("Initial scan complete - map generated!")
+        logger.info("🗺️ Initial scan complete - map generated!")
         await asyncio.sleep(2)  # Pause for video
     
     def _update_position(self, distance_moved: float, heading_change: float = 0):
@@ -564,7 +561,7 @@ class AdvancedSelfDrivingSystem:
             except:
                 pass  # Don't let visualization errors stop navigation
         
-        logger.info(f"Position: {self.current_position}")
+        logger.info(f"📍 Position: {self.current_position}")
     
     def _add_detected_obstacle(self, distance: float):
         """Add detected obstacle to the grid for path planning with proper heading consideration.
@@ -596,7 +593,7 @@ class AdvancedSelfDrivingSystem:
                     0 <= obs_y <= self.config.FIELD_LENGTH):
                     self.grid.add_obstacle(obs_x, obs_y)
         
-        logger.info(f"Added {obstacle_size*2}x{obstacle_size*2}cm obstacle area at ({obstacle_x:.1f}, {obstacle_y:.1f}) based on detection at {distance:.1f}cm, heading {math.degrees(self.current_position.theta):.1f} degrees")
+        logger.info(f"🚨 Added {obstacle_size*2}x{obstacle_size*2}cm obstacle area at ({obstacle_x:.1f}, {obstacle_y:.1f}) based on detection at {distance:.1f}cm, heading {math.degrees(self.current_position.theta):.1f}°")
         
         # Show updated map with new obstacle
         try:
@@ -662,13 +659,13 @@ class AdvancedSelfDrivingSystem:
                         # Apply heading change first, then forward movement from turn
                         self._update_position(0, turn_angle_rad)  
                         self._update_position(2.0, 0)  # ~2cm forward during turn
-                        logger.info(f"Aggressive left turn: {turn_angle_deg} degrees")
+                        logger.info(f"Aggressive left turn: {turn_angle_deg}°")
                     else:
                         self.car_controller.turn_right(self.config.TURN_POWER)
                         # Apply heading change first, then forward movement from turn
                         self._update_position(0, -turn_angle_rad)
                         self._update_position(2.0, 0)  # ~2cm forward during turn
-                        logger.info(f"Aggressive right turn: {turn_angle_deg} degrees")
+                        logger.info(f"Aggressive right turn: {turn_angle_deg}°")
                     
                     await asyncio.sleep(0.8)  # Longer turn time for wider angle
                     self.car_controller.stop()
@@ -721,7 +718,7 @@ class AdvancedSelfDrivingSystem:
                 # Use config constant for max correction angle
                 correction_angle = min(drift_amount * 0.1, self.config.MAX_DRIFT_CORRECTION_ANGLE)
                 
-                logger.info(f"Gentle steering adjustment: {correction_angle:.1f} degrees {correction_direction}")
+                logger.info(f"Gentle steering adjustment: {correction_angle:.1f}° {correction_direction}")
                 
                 # Just adjust steering angle, don't do active turning
                 if correction_direction == "right":
@@ -785,7 +782,7 @@ class AdvancedSelfDrivingSystem:
         Line numbers: ~630-680 in AdvancedSelfDrivingSystem class
         Shows: A* algorithm, path planning, obstacle avoidance routing
         """
-        logger.info("Replanning path with A* algorithm...")
+        logger.info("🧭 Replanning path with A* algorithm...")
         
         # Update obstacles and inflate
         self.grid.inflate_obstacles(self.config.OBSTACLE_INFLATION)
@@ -800,7 +797,7 @@ class AdvancedSelfDrivingSystem:
         if new_path:
             self.current_path = new_path
             self.path_index = 0
-            logger.info(f"A* path found with {len(new_path)} waypoints")
+            logger.info(f"✅ A* path found with {len(new_path)} waypoints")
             
             # Display map with new path
             self.map_visualizer.display_map(
@@ -812,7 +809,7 @@ class AdvancedSelfDrivingSystem:
             await asyncio.sleep(1)  # Show path for video
             
         else:
-            logger.warning("A* failed - creating corrective path toward goal")
+            logger.warning("❌ A* failed - creating corrective path toward goal")
             # Create path that heads toward the goal, not just forward
             dx = self.goal_position.x - self.current_position.x
             dy = self.goal_position.y - self.current_position.y
@@ -836,7 +833,7 @@ class AdvancedSelfDrivingSystem:
             
             self.current_path = [Position(target_x, target_y, 0)]
             self.path_index = 0
-            logger.info(f"Created corrective path to ({target_x:.1f}, {target_y:.1f}) toward goal")
+            logger.info(f"🔄 Created corrective path to ({target_x:.1f}, {target_y:.1f}) toward goal")
             
             # Display corrective path
             self.map_visualizer.display_map(
@@ -915,7 +912,7 @@ class AdvancedSelfDrivingSystem:
             self._update_position(0, heading_error)  # Apply heading change
             self._update_position(forward_distance_during_turn, 0)  # Apply forward movement
             
-            logger.info(f"Turn complete: {turn_angle_deg:.1f} degrees + {forward_distance_during_turn:.1f}cm forward")
+            logger.info(f"Turn complete: {turn_angle_deg:.1f}° + {forward_distance_during_turn:.1f}cm forward")
             
         except Exception as e:
             logger.error(f"Turn execution failed: {e}")
@@ -1131,8 +1128,8 @@ async def demo_multiple_destinations():
     config = SystemConfig()
     system = AdvancedSelfDrivingSystem(config)
     
-    logger.info("STARTING FULL AUTONOMOUS DRIVING DEMO")
-    logger.info("Destination 1: (30, 100) - Left side")
+    logger.info("🚗 STARTING FULL AUTONOMOUS DRIVING DEMO")
+    logger.info("🎯 Destination 1: (30, 100) - Left side")
     
     try:
         # Initialize system
@@ -1141,7 +1138,7 @@ async def demo_multiple_destinations():
         
         # First destination: Left side of field
         system.goal_position = Position(30, 100, 0)
-        logger.info(f"Navigating to Destination 1: {system.goal_position}")
+        logger.info(f"🎯 Navigating to Destination 1: {system.goal_position}")
         
         # Start navigation tasks
         safety_task = asyncio.create_task(system._safety_monitor())
@@ -1149,26 +1146,20 @@ async def demo_multiple_destinations():
         
         # Run until first goal reached or timeout
         try:
-            done, pending = await asyncio.wait(
-                [safety_task, control_task], 
-                timeout=60.0,
-                return_when=asyncio.FIRST_COMPLETED
+            await asyncio.wait_for(
+                asyncio.gather(safety_task, control_task, return_when=asyncio.FIRST_COMPLETED),
+                timeout=60.0
             )
         except asyncio.TimeoutError:
-            logger.info("First destination timeout - switching to destination 2")
+            logger.info("⏰ First destination timeout - switching to destination 2")
         
         # Cancel current tasks
-        for task in [safety_task, control_task]:
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+        safety_task.cancel()
+        control_task.cancel()
         
         # Second destination: Right side of field
-        system.goal_position = Position(90, 60, 0)
-        logger.info(f"Navigating to Destination 2: {system.goal_position}")
+        system.goal_position = Position(90, 150, 0)
+        logger.info(f"🎯 Navigating to Destination 2: {system.goal_position}")
         
         # Restart navigation tasks for second destination
         safety_task = asyncio.create_task(system._safety_monitor())
@@ -1181,27 +1172,15 @@ async def demo_multiple_destinations():
                 timeout=60.0
             )
         except asyncio.TimeoutError:
-            logger.info("Demo completed - both destinations attempted")
+            logger.info("⏰ Demo completed - both destinations attempted")
             
     except KeyboardInterrupt:
-        logger.info("Demo interrupted by user")
+        logger.info("🛑 Demo interrupted by user")
     except Exception as e:
-        logger.error(f"Demo error: {e}")
+        logger.error(f"❌ Demo error: {e}")
     finally:
-        # Ensure all tasks are properly cancelled
-        try:
-            for task_name in ['safety_task', 'control_task']:
-                if task_name in locals() and not locals()[task_name].done():
-                    locals()[task_name].cancel()
-                    try:
-                        await locals()[task_name]
-                    except asyncio.CancelledError:
-                        pass
-        except:
-            pass  # Ignore cleanup errors
-            
         await system.shutdown()
-        logger.info("DEMO COMPLETE")
+        logger.info("🏁 DEMO COMPLETE")
 
 def main():
     """Main entry point with multiple demo modes."""

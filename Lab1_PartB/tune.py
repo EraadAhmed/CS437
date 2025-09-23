@@ -13,9 +13,9 @@ from dataclasses import dataclass
 try:
     from picarx import Picarx
     HW_AVAILABLE = True
-    print("✓ PiCarX hardware available")
+    print("+ PiCarX hardware available")
 except ImportError:
-    print("✗ PiCarX not available - simulation mode only")
+    print("x PiCarX not available - simulation mode only")
     HW_AVAILABLE = False
 
 @dataclass
@@ -23,8 +23,8 @@ class TuningConfig:
     """Current tuning parameters"""
     drive_power: int = 35
     turn_power: int = 35
-    servo_offset: int = 0
-    move_duration: float = 1.0
+    servo_offset: float = -2.2
+    move_duration: float = 5.0
     turn_duration: float = 0.5
 
 class PowerTuner:
@@ -39,9 +39,9 @@ class PowerTuner:
             try:
                 self.picar = Picarx(servo_pins=["P0", "P1", "P3"])
                 self.picar.set_dir_servo_angle(self.config.servo_offset)
-                print("✓ PiCarX initialized successfully")
+                print("+ PiCarX initialized successfully")
             except Exception as e:
-                print(f"✗ PiCarX initialization failed: {e}")
+                print(f"x PiCarX initialization failed: {e}")
                 self.picar = None
         
         self.setup_input_thread()
@@ -71,7 +71,7 @@ class PowerTuner:
             elif command == 'h' or command == 'help':
                 self.show_help()
             
-            elif command == 's' or command == 'status':
+            elif command == 'status' or command == 'status':
                 self.show_status()
             
             elif command == 'w':  # Forward
@@ -94,23 +94,23 @@ class PowerTuner:
                     power = int(command.split()[1])
                     if 0 <= power <= 100:
                         self.config.drive_power = power
-                        print(f"✓ Drive power set to {power}")
+                        print(f"+ Drive power set to {power}")
                     else:
-                        print("✗ Drive power must be 0-100")
+                        print("x Drive power must be 0-100")
                 except (ValueError, IndexError):
-                    print("✗ Usage: dp <power> (0-100)")
-            
+                    print("x Usage: dp <power> (0-100)")
+
             elif command.startswith('tp '):  # Turn power
                 try:
                     power = int(command.split()[1])
                     if 0 <= power <= 100:
                         self.config.turn_power = power
-                        print(f"✓ Turn power set to {power}")
+                        print(f"+ Turn power set to {power}")
                     else:
-                        print("✗ Turn power must be 0-100")
+                        print("x Turn power must be 0-100")
                 except (ValueError, IndexError):
-                    print("✗ Usage: tp <power> (0-100)")
-            
+                    print("x Usage: tp <power> (0-100)")
+
             elif command.startswith('so '):  # Servo offset
                 try:
                     offset = int(command.split()[1])
@@ -118,34 +118,34 @@ class PowerTuner:
                         self.config.servo_offset = offset
                         if self.picar:
                             self.picar.set_dir_servo_angle(offset)
-                        print(f"✓ Servo offset set to {offset}")
+                        print(f"+ Servo offset set to {offset}")
                     else:
-                        print("✗ Servo offset must be -30 to 30")
+                        print("x Servo offset must be -30 to 30")
                 except (ValueError, IndexError):
-                    print("✗ Usage: so <offset> (-30 to 30)")
-            
+                    print("x Usage: so <offset> (-30 to 30)")
+
             elif command.startswith('mt '):  # Move time
                 try:
                     duration = float(command.split()[1])
                     if 0.1 <= duration <= 5.0:
                         self.config.move_duration = duration
-                        print(f"✓ Move duration set to {duration}s")
+                        print(f"+ Move duration set to {duration}s")
                     else:
-                        print("✗ Move duration must be 0.1-5.0 seconds")
+                        print("x Move duration must be 0.1-5.0 seconds")
                 except (ValueError, IndexError):
-                    print("✗ Usage: mt <seconds> (0.1-5.0)")
-            
+                    print("x Usage: mt <seconds> (0.1-5.0)")
+
             elif command.startswith('tt '):  # Turn time
                 try:
                     duration = float(command.split()[1])
                     if 0.1 <= duration <= 3.0:
                         self.config.turn_duration = duration
-                        print(f"✓ Turn duration set to {duration}s")
+                        print(f"+ Turn duration set to {duration}s")
                     else:
-                        print("✗ Turn duration must be 0.1-3.0 seconds")
+                        print("x Turn duration must be 0.1-3.0 seconds")
                 except (ValueError, IndexError):
-                    print("✗ Usage: tt <seconds> (0.1-3.0)")
-            
+                    print("x Usage: tt <seconds> (0.1-3.0)")
+
             elif command == 'test':
                 self.run_test_sequence()
             
@@ -153,11 +153,11 @@ class PowerTuner:
                 self.save_config()
             
             else:
-                print(f"✗ Unknown command: {command}. Type 'h' for help")
+                print(f"x Unknown command: {command}. Type 'h' for help")
         
         except Exception as e:
-            print(f"✗ Command error: {e}")
-    
+            print(f"x Command error: {e}")
+
     def test_forward(self):
         """Test forward movement"""
         print(f"Testing forward: power={self.config.drive_power}, duration={self.config.move_duration}s")
@@ -167,12 +167,12 @@ class PowerTuner:
                 self.picar.forward(self.config.drive_power)
                 time.sleep(self.config.move_duration)
                 self.picar.stop()
-                print("✓ Forward test complete")
+                print("+ Forward test complete")
             except Exception as e:
-                print(f"✗ Forward test failed: {e}")
+                print(f"x Forward test failed: {e}")
         else:
-            print("✓ Forward test (simulation)")
-    
+            print("+ Forward test (simulation)")
+
     def test_backward(self):
         """Test backward movement"""
         print(f"Testing backward: power={self.config.drive_power}, duration={self.config.move_duration}s")
@@ -182,12 +182,12 @@ class PowerTuner:
                 self.picar.backward(self.config.drive_power)
                 time.sleep(self.config.move_duration)
                 self.picar.stop()
-                print("✓ Backward test complete")
+                print("+ Backward test complete")
             except Exception as e:
-                print(f"✗ Backward test failed: {e}")
+                print(f"x Backward test failed: {e}")
         else:
-            print("✓ Backward test (simulation)")
-    
+            print("+ Backward test (simulation)")
+
     def test_turn_left(self):
         """Test left turn"""
         print(f"Testing left turn: power={self.config.turn_power}, duration={self.config.turn_duration}s")
@@ -198,12 +198,12 @@ class PowerTuner:
                 time.sleep(self.config.turn_duration)
                 self.picar.stop()
                 self.picar.set_dir_servo_angle(self.config.servo_offset)
-                print("✓ Left turn test complete")
+                print("+ Left turn test complete")
             except Exception as e:
-                print(f"✗ Left turn test failed: {e}")
+                print(f"x Left turn test failed: {e}")
         else:
-            print("✓ Left turn test (simulation)")
-    
+            print("+ Left turn test (simulation)")
+
     def test_turn_right(self):
         """Test right turn"""
         print(f"Testing right turn: power={self.config.turn_power}, duration={self.config.turn_duration}s")
@@ -214,24 +214,24 @@ class PowerTuner:
                 time.sleep(self.config.turn_duration)
                 self.picar.stop()
                 self.picar.set_dir_servo_angle(self.config.servo_offset)
-                print("✓ Right turn test complete")
+                print("+ Right turn test complete")
             except Exception as e:
-                print(f"✗ Right turn test failed: {e}")
+                print(f"x Right turn test failed: {e}")
         else:
-            print("✓ Right turn test (simulation)")
-    
+            print("+ Right turn test (simulation)")
+
     def stop_car(self):
         """Emergency stop"""
-        print("🛑 EMERGENCY STOP")
+        print(" EMERGENCY STOP")
         if self.picar:
             try:
                 self.picar.stop()
                 self.picar.set_dir_servo_angle(self.config.servo_offset)
-                print("✓ Car stopped")
+                print("+ Car stopped")
             except Exception as e:
-                print(f"✗ Stop failed: {e}")
+                print(f"x Stop failed: {e}")
         else:
-            print("✓ Stop (simulation)")
+            print("+ Stop (simulation)")
     
     def run_test_sequence(self):
         """Run a complete test sequence"""
@@ -252,10 +252,10 @@ class PowerTuner:
             time.sleep(0.5)
             
             self.stop_car()
-            print("✓ Test sequence complete")
+            print("+ Test sequence complete")
             
         except Exception as e:
-            print(f"✗ Test sequence failed: {e}")
+            print(f"x Test sequence failed: {e}")
             self.stop_car()
     
     def save_config(self):
@@ -282,14 +282,14 @@ TURN_DURATION = {self.config.turn_duration}
         try:
             with open('tuned_power_config.py', 'w') as f:
                 f.write(config_text)
-            print("✓ Configuration saved to 'tuned_power_config.py'")
+            print("+ Configuration saved to 'tuned_power_config.py'")
         except Exception as e:
-            print(f"✗ Save failed: {e}")
+            print(f"x Save failed: {e}")
     
     def show_status(self):
         """Show current configuration"""
         print("\n" + "="*50)
-        print("🔧 CURRENT POWER SETTINGS")
+        print(" CURRENT POWER SETTINGS")
         print("="*50)
         print(f"Drive Power:    {self.config.drive_power}")
         print(f"Turn Power:     {self.config.turn_power}")
@@ -302,7 +302,7 @@ TURN_DURATION = {self.config.turn_duration}
     def show_help(self):
         """Show help information"""
         print("\n" + "="*60)
-        print("🚗 POWER TUNING CONTROLS")
+        print(" POWER TUNING CONTROLS")
         print("="*60)
         print("MOVEMENT CONTROLS:")
         print("  w          - Test forward movement")
@@ -328,15 +328,15 @@ TURN_DURATION = {self.config.turn_duration}
         print("  quit/q     - Exit program")
         print()
         print("TIPS:")
-        print("  • Start with low power (20-30) and increase gradually")
-        print("  • Adjust servo offset if car doesn't drive straight")
-        print("  • Use shorter durations for precise movements")
-        print("  • Save settings when you find good values")
+        print(" - Start with low power (20-30) and increase gradually")
+        print(" - Adjust servo offset if car doesn't drive straight")
+        print(" - Use shorter durations for precise movements")
+        print(" - Save settings when you find good values")
         print("="*60 + "\n")
     
     def run(self):
         """Main run loop"""
-        print("\n🚗 PiCarX Power Tuning System")
+        print("\n PiCarX Power Tuning System")
         print("Type 'help' for commands, 'quit' to exit")
         self.show_status()
         
@@ -344,23 +344,23 @@ TURN_DURATION = {self.config.turn_duration}
             while self.running:
                 time.sleep(0.1)  # Prevent busy loop
         except KeyboardInterrupt:
-            print("\n🛑 Interrupted by user")
+            print("\n Interrupted by user")
         finally:
             self.cleanup()
     
     def cleanup(self):
         """Clean shutdown"""
-        print("\n🧹 Cleaning up...")
+        print("\n Cleaning up...")
         self.running = False
         
         if self.picar:
             try:
                 self.picar.stop()
-                print("✓ Car stopped")
+                print("+ Car stopped")
             except:
                 pass
         
-        print("✓ Cleanup complete")
+        print("+ Cleanup complete")
 
 
 def main():

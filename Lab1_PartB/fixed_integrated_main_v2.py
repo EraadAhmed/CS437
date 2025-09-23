@@ -8,6 +8,7 @@ import numpy as np
 import logging
 from threading import Event
 import math
+from scipy.ndimage import zoom # You will need this for the display_loop
 
 # Hardware imports with error handling
 try:
@@ -51,11 +52,13 @@ class FixedSelfDrivingSystem:
         self.DRIFT_CORRECTION_FACTOR = 0.8  # Multiply distance by this to account for systematic error
         
         # Movement calibration
-        self.DRIVE_SPEED = 50.0   # cm/s
+        self.DRIVE_SPEED = 26.0   # cm/s - conservative for accuracy
         self.DRIVE_POWER = 35     # PWM power level
         self.TURN_POWER = 25
         
         # Position tracking - CRITICAL for drift detection
+        self.start_x = 60.0    # Start at center of hallway
+        self.start_y = 0.0     # Start at beginning
         self.current_x = 60.0     # Start at center of hallway
         self.current_y = 0.0      # Start at beginning
         self.current_theta = 0.0  # Facing forward
@@ -87,6 +90,24 @@ class FixedSelfDrivingSystem:
         self.distance_since_detection = 0
         self.is_moving = False
         self.consecutive_failures = 0
+
+        #pan stuff
+        self.PAN_ANGLE = 60  # degrees
+        self.SENSOR_REFRESH = 0.2  # seconds between sensor reads
+        self.MAXREAD = 100  # cm - max valid ultrasonic reading
+
+        # Map and sensor parameters
+        self.stop_event = asyncio.Event()
+        self.map_lock = asyncio.Lock()
+        self.map_dirty = asyncio.Event()
+        self.plan_lock = asyncio.Lock()
+        self.halt_event = asyncio.Event()
+        self.SENSOR_REFRESH = 0.10
+        self.DISPLAY_REFRESH = 0.20
+        self.CAR_DISPLAY_REFRESH = 0.10
+        self.PLAN_REFRESH_MIN = 0.5
+        self.map_ = np.zeros((self.FIELD_LENGTH, self.FIELD_WIDTH), dtype=np.uint8)
+        self.flag = 0 
         
         logger.info("Fixed self-driving system initialized")
 
@@ -135,6 +156,136 @@ class FixedSelfDrivingSystem:
             logger.warning("Running without object detection")
         
         logger.info("Initialization complete")
+    async def map_obstacle(self, x, y):
+        """Marks a single raw obstacle cell, but ignores points inside a 'safe zone' around the start."""
+        ix, iy = int(round(x)), int(round(y))
+        if not self.inside(ix, iy):
+            return
+
+        # DEFINITIVE FIX: Create a "safe zone" around the car's initial start point.
+        # This prevents the initial scan from blocking the planner.
+        start_x, start_y = self.start_x, self.start_y
+        safe_zone_radius = self.CAR_LENGTH * 1.5 # 1.5 car lengths
+        if math.hypot(ix - start_x, iy - start_y) < safe_zone_radius:
+            # self.log(f"[map] Ignored obstacle at ({ix},{iy}) inside safe zone.")
+            return # Skip mapping this point
+
+        async with self.map_lock:
+            # Only mark the single cell corresponding to the raw sensor reading
+            if self.map_[iy, ix] != 1:
+                self.map_[iy, ix] = 1
+                self.map_dirty.set()
+
+    def inside(self, x, y):
+        ix, iy = int(round(x)), int(round(y))
+        return (0 <= ix < self.FIELD_WIDTH) and (0 <= iy < self.FIELD_LENGTH)
+
+    async def map_car(self):
+        x, y, theta = self.current_x, self.current_y, self.current_theta
+        ix, iy = int(round(x)), int(round(y))
+        half_l = self.CAR_LENGTH / 2.0
+        half_w = self.CAR_WIDTH/ 2.0
+        corners = [(-half_w, -half_l), (half_w, -half_l), (half_w, half_l), (-half_w, half_l)]
+        rotated_corners = []
+        for c_x, c_y in corners:
+            rot_x = c_x * math.cos(theta) - c_y * math.sin(theta)
+            rot_y = c_x * math.sin(theta) + c_y * math.cos(theta)
+            rotated_corners.append((ix + rot_x, iy + rot_y))
+        
+        min_x = int(round(min(c[0] for c in rotated_corners)))
+        max_x = int(round(max(c[0] for c in rotated_corners)))
+        min_y = int(round(min(c[1] for c in rotated_corners)))
+        max_y = int(round(max(c[1] for c in rotated_corners)))
+
+        async with self.map_lock:
+            self.map_[self.map_ == 2] = 0
+            for r in range(min_y, max_y + 1):
+                for c in range(min_x, max_x + 1):
+                    if self.inside(c, r) and self.map_[r, c] == 0:
+                        self.map_[r,c] = 2
+            self.map_dirty.set()
+
+
+    async def ultrasonic_pan_loop(self):
+        angle = 0.0
+        dir_ = self.DETECTION_FREQUENCY
+        pan_limit = self.PAN_ANGLE
+        self.picarx.set_cam_pan_angle(0)
+        await asyncio.sleep(0.3)
+        while self.flag == 0:
+            self.picarx.set_cam_pan_angle(angle)
+            await asyncio.sleep(self.SENSOR_REFRESH)
+            reading_cm = self.picarx.ultrasonic.read()
+            if not (0 < reading_cm <= self.MAXREAD):
+                angle += dir_
+                if angle >= pan_limit or angle <= -pan_limit: dir_ *= -1
+                continue
+            
+            x, y, theta = self.current_x, self.current_y, self.current_theta
+            theta_ray = theta + np.radians(angle)
+            dx_cells = (reading_cm * np.cos(theta_ray)) 
+            dy_cells = (reading_cm * np.sin(theta_ray))
+            ox, oy = x + dx_cells, y + dy_cells
+            ox, oy = int(round(ox)), int(round(oy))
+            if self.inside(ox, oy):
+                await self.map_obstacle(ox, oy)
+            angle += dir_
+            if angle >= pan_limit or angle <= -pan_limit: dir_ *= -1
+        self.picarx.set_cam_pan_angle(0)
+
+    async def calibrate(self):
+        angle = -90
+        step = self.DETECTION_FREQUENCY
+        pan_limit = 90
+        self.picarx.set_cam_pan_angle(0)
+        await asyncio.sleep(0.5)
+        while angle <= pan_limit:
+            self.picarx.set_cam_pan_angle(angle)
+            await asyncio.sleep(self.SENSOR_REFRESH)
+            reading_cm = self.picarx.ultrasonic.read()
+            if not (0 < reading_cm <= self.MAXREAD):
+                angle += step
+                continue
+            
+            x, y, theta = self.current_x, self.current_y, self.current_theta
+            theta_ray = theta + np.radians(angle)
+            dx_cells = reading_cm * np.cos(theta_ray)
+            dy_cells = reading_cm * np.sin(theta_ray)
+            ox, oy = x + dx_cells, y + dy_cells
+            if self.inside(ox, oy):
+                ox, oy = int(round(ox)), int(round(oy))
+                await self.map_obstacle(ox, oy)
+            angle += step
+        self.picarx.set_cam_pan_angle(0)
+        await asyncio.sleep(0.5)
+
+    async def display_loop(self):
+        # ... (this function is fine)
+        log_path = "display.log"
+        factor = 0.5 
+        with open(log_path, "w") as f:
+            while self.flag == 0:
+                async with self.map_lock:
+                    small_map = zoom(self.map_, zoom=factor, order=0)
+                lines = []
+                h, w = small_map.shape
+                for yy in range(h):
+                    row = small_map[yy]
+                    line = "".join(
+                        ". " if val == 0 else "X " if val == 1 else "C "
+                        for val in row
+                    )
+                    lines.append(line)
+                f.seek(0)
+                f.truncate(0)
+                f.write("\n".join(lines) + "\n")
+                f.flush()
+                await asyncio.sleep(self.DISPLAY_REFRESH)
+
+    async def car_map_loop(self):
+        while not self.stop_event.is_set():
+            await self.map_car()
+            await asyncio.sleep(self.CAR_DISPLAY_REFRESH)
 
     def update_position(self, distance_moved, turn_angle=0):
         """
@@ -312,6 +463,7 @@ class FixedSelfDrivingSystem:
         dy = self.target_y - self.current_y
         
         if dy <= 0:  # Already at or past goal
+            self.flag = 1
             return True
         
         required_heading = math.atan2(dx, dy)  # atan2(x, y) for our coordinate system
@@ -408,6 +560,7 @@ class FixedSelfDrivingSystem:
             # Check if goal reached
             if distance_to_goal < 15:  # 15cm tolerance
                 logger.info("GOAL REACHED!")
+                self.flag = 1
                 return False  # Stop navigation
             
             # Turn towards goal if needed
@@ -472,7 +625,13 @@ class FixedSelfDrivingSystem:
         """Main run method."""
         try:
             await self.initialize()
-            await self.main_control_loop()
+            tasks = [
+            asyncio.create_task(self.ultrasonic_pan_loop(), name="sensor"),
+            asyncio.create_task(self.car_map_loop(), name="carstamp"),
+            asyncio.create_task(self.main_control_loop(), name="controller"),
+            asyncio.create_task(self.display_loop(), name="display"),
+            ]
+            await asyncio.gather(*tasks)
         except KeyboardInterrupt:
             logger.info("System stopped by user")
         except Exception as e:

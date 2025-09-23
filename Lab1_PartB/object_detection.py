@@ -25,6 +25,10 @@ class ObjectDetector:
     Runs TensorFlow Lite object detection in a separate thread to avoid
     blocking the main asyncio navigation loop.
     """
+    SENSOR_REFRESH = 0.10
+    DISPLAY_REFRESH = 0.20
+    CAR_DISPLAY_REFRESH = 0.10
+    PLAN_REFRESH_MIN = 0.5
     def __init__(self, model_path='efficientdet_lite0.tflite', confidence_threshold=0.5):
         self.model_path = model_path
         self.confidence_threshold = confidence_threshold

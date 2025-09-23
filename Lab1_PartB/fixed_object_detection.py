@@ -8,11 +8,21 @@ from threading import Thread, Lock
 import time
 import logging
 
+# Import vilib for better camera support on PiCar
+try:
+    import vilib
+    VILIB_AVAILABLE = True
+    print("vilib imported successfully")
+except ImportError:
+    VILIB_AVAILABLE = False
+    print("vilib not available, falling back to OpenCV")
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Default halt objects - adjust based on your labelmap.txt
-HALT_OBJECT_IDS = [0, 12]  # person=0, stop sign=12 (adjust based on your model)
+# Note: person=0 can cause false positives if user is in view
+HALT_OBJECT_IDS = [12]  # Only stop sign=12, temporarily removing person=0 to avoid false positives
 
 class ObjectDetector:
     """
@@ -21,7 +31,7 @@ class ObjectDetector:
     """
     
     def __init__(self, model_path='efficientdet_lite0.tflite', 
-                 confidence_threshold=0.4, max_detections=10):
+                 confidence_threshold=0.8, max_detections=10):
         self.model_path = model_path
         self.confidence_threshold = confidence_threshold
         self.max_detections = max_detections
@@ -44,6 +54,7 @@ class ObjectDetector:
         
         # Camera setup with better error handling
         self.cap = None
+        self.vilib_instance = None
         self._init_camera()
         
         # Threading and state management
@@ -56,42 +67,47 @@ class ObjectDetector:
         self._frame_count = 0
         self._detection_count = 0
         
+        # False positive reduction
+        self._consecutive_detections = 0
+        self._min_consecutive_detections = 3  # Require 3 consecutive detections
+        self._recent_detections = []  # Track recent detection confidence scores
+        
     def _init_camera(self):
-        """Initialize camera with multiple fallback attempts."""
-        camera_configs = [
-            {'index': 0, 'width': 640, 'height': 480},
-            {'index': 0, 'width': 320, 'height': 240},  # Lower resolution fallback
-            {'index': 1, 'width': 640, 'height': 480},  # Try different camera
-        ]
+        """Initialize camera using vilib for better Raspberry Pi compatibility."""
+        logger.info("Initializing camera with vilib...")
         
-        for config in camera_configs:
-            try:
-                self.cap = cv2.VideoCapture(config['index'])
-                if self.cap.isOpened():
-                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, config['width'])
-                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config['height'])
-                    self.cap.set(cv2.CAP_PROP_FPS, 10)  # Limit FPS for stability
-                    
-                    # Test capture
-                    ret, frame = self.cap.read()
-                    if ret and frame is not None:
-                        logger.info(f"Camera initialized: {config['width']}x{config['height']}")
-                        return
-                    else:
-                        self.cap.release()
-                        self.cap = None
-            except Exception as e:
-                logger.warning(f"Camera config {config} failed: {e}")
-                if self.cap:
-                    self.cap.release()
-                    self.cap = None
+        if not VILIB_AVAILABLE:
+            logger.error("vilib not available, cannot initialize camera")
+            self.cap = None
+            return
         
-        logger.error("All camera initialization attempts failed")
+        try:
+            # Create vilib instance and start camera
+            self.vilib_instance = vilib.Vilib()
+            self.vilib_instance.camera_start(vflip=False, hflip=False)
+            time.sleep(2)  # Give camera time to initialize
+            
+            # Test frame capture
+            for attempt in range(10):
+                frame = self.vilib_instance.img
+                if frame is not None and hasattr(frame, 'size') and frame.size > 0:
+                    logger.info(f"vilib camera initialized successfully: frame shape {frame.shape}")
+                    self.cap = 'vilib'  # Mark that we're using vilib
+                    return
+                time.sleep(0.5)
+            
+            logger.error("vilib camera test failed - no frames captured")
+            self.vilib_instance.camera_close()
+            self.cap = None
+            
+        except Exception as e:
+            logger.error(f"vilib camera initialization failed: {e}")
+            self.cap = None
 
     def _detection_thread(self):
         """Main detection loop with improved error handling."""
         consecutive_failures = 0
-        max_failures = 10
+        max_failures = 20  # Increase tolerance before reinitializing
         
         while self._is_running:
             try:
@@ -100,9 +116,20 @@ class ObjectDetector:
                     time.sleep(0.5)
                     continue
                 
-                # Capture frame
-                ret, frame = self.cap.read()
-                if not ret or frame is None:
+                # Capture frame using vilib or OpenCV
+                if self.cap == 'vilib' and self.vilib_instance:
+                    frame = self.vilib_instance.img
+                    ret = frame is not None and hasattr(frame, 'size') and frame.size > 0
+                else:
+                    # Fallback to OpenCV (shouldn't happen with current setup)
+                    ret, frame = None, None
+                    for attempt in range(3):
+                        ret, frame = self.cap.read()
+                        if ret and frame is not None:
+                            break
+                        time.sleep(0.05)
+                
+                if not ret or frame is None or frame.size == 0:
                     consecutive_failures += 1
                     if consecutive_failures >= max_failures:
                         logger.error("Too many camera failures - reinitializing")
@@ -115,7 +142,7 @@ class ObjectDetector:
                 self._frame_count += 1
                 
                 # Skip processing every other frame for performance
-                if self._frame_count % 2 == 0:
+                if self._frame_count % 4 == 0:  # Process only every 4th frame
                     time.sleep(0.1)
                     continue
                 
@@ -128,25 +155,70 @@ class ObjectDetector:
                 self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
                 self.interpreter.invoke()
                 
-                # Get detection results
-                scores = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
-                classes = self.interpreter.get_tensor(self.output_details[3]['index'])[0]
+                # Get detection results from EfficientDet model
+                # Output 0: boxes [1, 25, 4]
+                # Output 1: scores [1, 25] 
+                # Output 2: classes [1, 25]
+                # Output 3: num_detections [1]
                 
-                # Check for halt objects
+                boxes = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
+                scores = self.interpreter.get_tensor(self.output_details[1]['index'])[0]
+                classes = self.interpreter.get_tensor(self.output_details[2]['index'])[0]
+                num_detections = int(self.interpreter.get_tensor(self.output_details[3]['index'])[0])
+                
+                # Ensure arrays are properly shaped
+                scores = np.array(scores).flatten()
+                classes = np.array(classes).flatten()
+                
+                # Debug: log tensor info occasionally
+                if self._frame_count % 100 == 0:
+                    logger.debug(f"Detections: {num_detections}, scores shape: {scores.shape}, classes shape: {classes.shape}")
+                
+                # Check for halt objects with false positive reduction
                 halt_detected = False
                 detection_info = []
+                current_frame_detections = []
                 
-                for i in range(min(len(scores), self.max_detections)):
-                    if scores[i] > self.confidence_threshold:
-                        class_id = int(classes[i])
+                # Use actual number of detections, limited by tensor size
+                max_to_check = min(num_detections, len(scores), len(classes), self.max_detections)
+                
+                for i in range(max_to_check):
+                    # Extract scalar values to avoid array comparison ambiguity
+                    score_val = float(scores[i])
+                    class_val = int(classes[i])
+                    
+                    if score_val > self.confidence_threshold:
                         detection_info.append({
-                            'class_id': class_id,
-                            'confidence': float(scores[i])
+                            'class_id': class_val,
+                            'confidence': score_val
                         })
                         
-                        if class_id in HALT_OBJECT_IDS:
-                            halt_detected = True
-                            logger.info(f"HALT OBJECT DETECTED: class_id={class_id}, confidence={scores[i]:.2f}")
+                        if class_val in HALT_OBJECT_IDS:
+                            current_frame_detections.append({
+                                'class_id': class_val,
+                                'confidence': score_val
+                            })
+                
+                # Implement consecutive detection logic to reduce false positives
+                if current_frame_detections:
+                    self._consecutive_detections += 1
+                    self._recent_detections.append(current_frame_detections)
+                    
+                    # Keep only recent detections (last 5 frames)
+                    if len(self._recent_detections) > 5:
+                        self._recent_detections.pop(0)
+                    
+                    # Only trigger halt if we have enough consecutive detections
+                    if self._consecutive_detections >= self._min_consecutive_detections:
+                        halt_detected = True
+                        # Log only when we first detect or every 10th consecutive detection
+                        if self._consecutive_detections == self._min_consecutive_detections or self._consecutive_detections % 10 == 0:
+                            for det in current_frame_detections:
+                                logger.info(f"PERSISTENT HALT OBJECT: class_id={det['class_id']}, confidence={det['confidence']:.2f}, consecutive={self._consecutive_detections}")
+                else:
+                    # Reset consecutive count if no detections
+                    self._consecutive_detections = 0
+                    self._recent_detections.clear()
                 
                 # Update shared state
                 with self._lock:
@@ -156,7 +228,7 @@ class ObjectDetector:
                         self._detection_count += 1
                 
                 # Control frame rate
-                time.sleep(0.2)  # ~5 FPS for object detection
+                time.sleep(0.5)  # ~2 FPS for object detection to reduce load
                 
             except Exception as e:
                 logger.error(f"Detection thread error: {e}")
@@ -165,14 +237,25 @@ class ObjectDetector:
 
     def start_detection(self):
         """Start background detection thread."""
-        if self._is_running or not self.cap or not self.interpreter:
-            logger.warning("Cannot start detection - missing camera or model")
+        if self._is_running:
+            logger.warning("Detection already running")
+            return True
+            
+        if not self.interpreter:
+            logger.error("Cannot start detection - TensorFlow model not loaded")
             return False
+            
+        if not self.cap:
+            logger.warning("Camera not available - attempting to reinitialize")
+            self._init_camera()
+            if not self.cap:
+                logger.error("Cannot start detection - camera initialization failed")
+                return False
             
         self._is_running = True
         self._thread = Thread(target=self._detection_thread, daemon=True)
         self._thread.start()
-        logger.info("Object detection started")
+        logger.info("Object detection started successfully")
         return True
 
     def stop_detection(self):
@@ -181,17 +264,26 @@ class ObjectDetector:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
         
-        if self.cap:
+        if self.cap == 'vilib' and self.vilib_instance:
+            try:
+                self.vilib_instance.camera_close()
+            except Exception as e:
+                logger.warning(f"Error closing vilib camera: {e}")
+        elif self.cap and hasattr(self.cap, 'release'):
             self.cap.release()
-            self.cap = None
         
+        self.cap = None
+        self.vilib_instance = None
         logger.info("Object detection stopped")
 
     def is_halt_needed(self):
         """
         Thread-safe check for halt requirement.
-        Returns False if detections are stale.
+        Returns False if detections are stale or detection is not running.
         """
+        if not self._is_running:
+            return False
+            
         with self._lock:
             current_time = time.time()
             
@@ -207,10 +299,12 @@ class ObjectDetector:
             return {
                 'frame_count': self._frame_count,
                 'detection_count': self._detection_count,
+                'consecutive_detections': self._consecutive_detections,
                 'last_detection_age': time.time() - self._last_detection_time,
                 'is_running': self._is_running,
                 'camera_available': self.cap is not None,
-                'model_available': self.interpreter is not None
+                'model_available': self.interpreter is not None,
+                'min_consecutive_required': self._min_consecutive_detections
             }
 
     def test_detection(self):
@@ -222,7 +316,12 @@ class ObjectDetector:
             return False
         
         try:
-            ret, frame = self.cap.read()
+            if self.cap == 'vilib' and self.vilib_instance:
+                frame = self.vilib_instance.img
+                ret = frame is not None and hasattr(frame, 'size') and frame.size > 0
+            else:
+                ret, frame = self.cap.read()
+            
             if ret and frame is not None:
                 logger.info(f"Camera test successful - frame shape: {frame.shape}")
                 return True
