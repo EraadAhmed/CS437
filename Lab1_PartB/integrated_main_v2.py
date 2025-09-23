@@ -44,7 +44,7 @@ class Navigator:
         picarx,
         width_cm=120,
         length_cm=380,
-        sampling=1,
+        sampling=4,
         car_width=14,
         car_length=23,
         start_pos_cm=(59, 0),      # Input in cm
@@ -196,7 +196,7 @@ class Navigator:
     async def display_loop(self):
         # ... (this function is fine)
         log_path = "display.log"
-        factor = 1/5.0
+        factor = min(float(1/2),float(1/sampling))
         with open(log_path, "w") as f:
             while not self.stop_event.is_set():
                 async with self.map_lock:
@@ -248,10 +248,8 @@ class Navigator:
         else:
             R = self.CAR_L_SCALED / math.tan(steer_angle)
             beta = d / R
-            cx = x - R * math.sin(theta)
-            cy = y + R * math.cos(theta)
-            new_x = cx + R * math.sin(theta + beta)
-            new_y = cy - R * math.cos(theta + beta)
+            new_x = x + R * math.sin(theta + beta)
+            new_y = y - R * math.cos(theta + beta)
             new_theta = theta + beta
         new_theta = new_theta % (2 * math.pi)
         return (new_x, new_y, new_theta)
@@ -293,10 +291,10 @@ class Navigator:
 
         start_node = Coordinate(start, 0.0, h=h_of(start), parent=None)
         openq.put((start_node.f(), next(counter), start_node))
-
+        max_iterations = 0
         # We will limit the search to prevent it from running forever on impossible maps
-        max_iterations = 2000 
-        for i in range(max_iterations):
+        while not openq.empty():
+            max_iterations += 1
             if openq.empty():
                 self.log("[planner] ABORT: Open queue is empty. Goal is unreachable.")
                 return []
@@ -320,7 +318,7 @@ class Navigator:
                 # Ensure the car is generally moving forward
                 dx = nxt[0] - cur.state[0]
                 dy = nxt[1] - cur.state[1]
-                forward = dy * math.sin(cur.state[2])
+                forward = dy * math.sin(cur.state[2]) + dx * math.cos(cur.state[2])
                 print("forward:", forward)
                 if forward < -0.01: # Allow for slight non-forward movement in turns
                     continue
@@ -416,54 +414,59 @@ class Navigator:
             self.map_dirty.set()
             await asyncio.sleep(0.1)
 
-    # async def start(self):
-    #     # ... (this function is fine)
-    #     open("nav_debug.log", "w").close()
-    #     self.px.set_cam_pan_angle(0)
-    #     self.px.set_dir_servo_angle(0)
-    #     await self.calibrate()
-    #     self.map_dirty.set()
-    #     tasks = [  
-    #         asyncio.create_task(self.ultrasonic_pan_loop(), name="sensor"),
-    #         asyncio.create_task(self.car_map_loop(), name="carstamp"),
-    #         asyncio.create_task(self.plan_loop(), name="planner"),
-    #         asyncio.create_task(self.control_loop(), name="controller"),
-    #         asyncio.create_task(self.vision_loop(), name="vision"),
-    #         asyncio.create_task(self.display_loop(), name="display"),
-    #     ]
-    #     try:
-    #         await asyncio.gather(*tasks)
-    #     except asyncio.CancelledError: pass
-    #     finally: self.stop()
-    # In the Navigator class, replace the entire start() method with this one:
-
     async def start(self):
+        # ... (this function is fine)
         open("nav_debug.log", "w").close()
         self.px.set_cam_pan_angle(0)
         self.px.set_dir_servo_angle(0)
+        await self.calibrate()
+        self.map_dirty.set()
+        self.path = await self.plan_once()
+        if not self.path:
+            self.log("[start] Initial planning failed. Stopping.")
+            self.stop()
+            return
+        tasks = [  
+            asyncio.create_task(self.ultrasonic_pan_loop(), name="sensor"),
+            asyncio.create_task(self.car_map_loop(), name="carstamp"),
+            #asyncio.create_task(self.plan_loop(), name="planner"),
+            asyncio.create_task(self.control_loop(), name="controller"),
+            asyncio.create_task(self.vision_loop(), name="vision"),
+            asyncio.create_task(self.display_loop(), name="display"),
+        ]
+        try:
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError: pass
+        finally: self.stop()
 
-        # 1. Bypassing map creation and complex planning.
-        # We know the space is open, so we don't need a map for this test.
-        # await self.calibrate() 
+    # async def start(self):
+    #     open("nav_debug.log", "w").close()
+    #     self.px.set_cam_pan_angle(0)
+    #     self.px.set_dir_servo_angle(0)
 
-        # 2. Manually create a simple straight path from start to goal.
-        self.log("[start] Creating simple straight-line path.")
-        path_list = []
-        num_waypoints = 20  # Create 20 waypoints
-        start_x, start_y, start_theta = self.start_state
-        goal_x, goal_y = self.goal_xy
+    #     # 1. Bypassing map creation and complex planning.
+    #     # We know the space is open, so we don't need a map for this test.
+    #     # await self.calibrate() 
 
-        # Use numpy to create evenly spaced points
-        y_points = np.linspace(start_y, goal_y, num_waypoints)
+    #     # 2. Manually create a simple straight path from start to goal.
+    #     self.log("[start] Creating simple straight-line path.")
+    #     path_list = []
+    #     num_waypoints = 20  # Create 20 waypoints
+    #     start_x, start_y, start_theta = self.start_state
+    #     goal_x, goal_y = self.goal_xy
 
-        for y in y_points:
-            # Each waypoint is (x, y, theta)
-            path_list.append((start_x, y, start_theta))
+    #     # Use numpy to create evenly spaced points
+    #     y_points = np.linspace(start_y, goal_y, num_waypoints)
+
+    #     for y in y_points:
+    #         # Each waypoint is (x, y, theta)
+    #         path_list.append((start_x, y, start_theta))
         
-        # Load the simple path into the navigator
-        async with self.plan_lock:
-            self.path = path_list
+    #     # Load the simple path into the navigator
+    #     async with self.plan_lock:
+    #         self.path = path_list
         
+
         self.log(f"[start] Path created with {len(self.path)} waypoints.")
 
         # 3. Run only the essential tasks: driving, car display, and safety camera.
