@@ -17,7 +17,7 @@ LENGTH = 150
 X_MID = 30
 CAR_WIDTH = 14
 CAR_LENGTH = 23
-MAXREAD = 100 #wont change since we will convert x and y in post processing
+MAXREAD = 200 #wont change since we will convert x and y in post processing
 SAMPLING = 1 #everything scaled down by factor of 5
 
 
