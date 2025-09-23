@@ -541,7 +541,8 @@ class IntegratedSelfDrivingSystem:
         logger.info("Starting integrated self-driving system...")
         
         self.running.set()
-        self.object_detector.start_detection()
+        if self.object_detector:
+            self.object_detector.start_detection()
         
         # Initial mapping scan
         await self._perform_initial_scan()
@@ -565,8 +566,14 @@ class IntegratedSelfDrivingSystem:
                 if not task.done():
                     task.cancel()
             
-            # Wait for tasks to finish cancelling
-            await asyncio.gather(*tasks, return_exceptions=True)
+            # Wait for tasks to finish cancelling with timeout
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=2.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Task cancellation timed out")
             
             await self.stop()
     
@@ -575,8 +582,10 @@ class IntegratedSelfDrivingSystem:
         logger.info("Stopping integrated self-driving system...")
         
         self.running.clear()
-        self.car_controller.stop()
-        self.object_detector.stop_detection()
+        if self.car_controller:
+            self.car_controller.stop()
+        if self.object_detector:
+            self.object_detector.stop_detection()
         
         logger.info("System stopped")
     
