@@ -33,6 +33,7 @@ import os
 try:
     from picarx import Picarx
     from picamera2 import Picamera2
+    from object_detection import ObjectDetector as ObjectDetectorHW
     HW_AVAILABLE = True
 except ImportError:
     print("WARNING: Hardware libraries not available. Running in simulation mode.")
@@ -71,14 +72,14 @@ class SystemConfig:
     GRID_RESOLUTION: float = 1.0  # 1cm per grid cell
     OBSTACLE_INFLATION: int = 8   # Cells to inflate around obstacles (car half-width + safety)
     CAR_CLEARANCE: int = 15       # Additional clearance needed around car (cm)
-    STRAIGHT_DRIVING_THRESHOLD: float = 0.1  # Radians for considering "straight"
+    STRAIGHT_DRIVING_THRESHOLD: float = 0.2  # Radians for considering "straight" (~11.5 degrees)
     
     # Control parameters
     DRIVE_SPEED: float = 25.0     # cm/s - reduced for better control
     TURN_POWER: int = 35
     DRIVE_POWER: int = 35
-    SERVO_OFFSET: int = 10       # Calibration offset for straight driving (positive = steer right)
-    STEERING_CORRECTION_FACTOR: float = 0.8  # Factor for steering corrections
+    SERVO_OFFSET: int = -5       # Calibration offset for straight driving (negative = steer left to counter right drift)
+    STEERING_CORRECTION_FACTOR: float = 0.5  # Factor for steering corrections (reduced from 0.8)
     
     # Timing parameters
     CONTROL_FREQUENCY: int = 20   # Hz - increased for responsive control
@@ -205,133 +206,6 @@ class OccupancyGrid:
         except Exception as e:
             logger.warning(f"Grid copy error: {e}")
             return np.zeros((self.grid_height, self.grid_width), dtype=np.uint8)
-
-class ObjectDetector:
-    """Simplified object detection for critical objects."""
-    def __init__(self, config: SystemConfig):
-        self.config = config
-        self.camera = None
-        self.model = None
-        self.detection_active = Event()
-        self.stop_sign_detected = Event()
-        self.person_detected = Event()
-        self.detection_queue = Queue(maxsize=5)
-        
-        if TF_AVAILABLE and HW_AVAILABLE:
-            self._initialize_camera()
-            self._load_model()
-    
-    def _initialize_camera(self):
-        """Initialize camera with optimal settings."""
-        try:
-            self.camera = Picamera2()
-            config = self.camera.create_preview_configuration(
-                main={"size": (320, 320), "format": "RGB888"}
-            )
-            self.camera.configure(config)
-            logger.info("Camera initialized for object detection")
-        except Exception as e:
-            logger.error(f"Camera initialization failed: {e}")
-    
-    def _load_model(self):
-        """Load TensorFlow Lite model."""
-        try:
-            model_path = "efficientdet_lite0.tflite"
-            if os.path.exists(model_path):
-                self.interpreter = tf.lite.Interpreter(model_path=model_path)
-                self.interpreter.allocate_tensors()
-                self.input_details = self.interpreter.get_input_details()
-                self.output_details = self.interpreter.get_output_details()
-                logger.info("TensorFlow Lite model loaded")
-            else:
-                logger.warning(f"Model file {model_path} not found")
-        except Exception as e:
-            logger.error(f"Model loading failed: {e}")
-    
-    def start_detection(self):
-        """Start object detection in background thread."""
-        if not (TF_AVAILABLE and HW_AVAILABLE and self.camera and self.model):
-            logger.warning("Object detection not available - running without it")
-            return
-            
-        self.detection_active.set()
-        self.camera.start()
-        
-        import threading
-        self.detection_thread = threading.Thread(target=self._detection_loop, daemon=True)
-        self.detection_thread.start()
-        logger.info("Object detection started")
-    
-    def stop_detection(self):
-        """Stop object detection."""
-        self.detection_active.clear()
-        if self.camera:
-            self.camera.stop()
-    
-    def _detection_loop(self):
-        """Main detection loop."""
-        while self.detection_active.is_set():
-            try:
-                # Capture and process frame
-                frame = self.camera.capture_array()
-                detections = self._detect_objects(frame)
-                
-                # Check for critical objects
-                self._process_detections(detections)
-                
-                # Add to queue
-                try:
-                    self.detection_queue.put_nowait({
-                        'detections': detections,
-                        'timestamp': time.time()
-                    })
-                except:
-                    pass  # Queue full
-                
-                time.sleep(1.0 / self.config.DETECTION_FREQUENCY)
-                
-            except Exception as e:
-                logger.error(f"Detection loop error: {e}")
-                time.sleep(0.1)
-    
-    def _detect_objects(self, frame) -> List[dict]:
-        """Run object detection on frame."""
-        if not self.model:
-            return []
-        
-        # Simplified detection - in real implementation would use TensorFlow
-        # For now, return empty list
-        return []
-    
-    def _process_detections(self, detections):
-        """Process detections for critical objects."""
-        stop_sign_found = False
-        person_found = False
-        
-        for detection in detections:
-            class_name = detection.get('class_name', '').lower()
-            confidence = detection.get('confidence', 0.0)
-            
-            if 'stop' in class_name and confidence > 0.5:
-                stop_sign_found = True
-            elif 'person' in class_name and confidence > 0.5:
-                person_found = True
-        
-        if stop_sign_found:
-            self.stop_sign_detected.set()
-        else:
-            self.stop_sign_detected.clear()
-            
-        if person_found:
-            self.person_detected.set()
-        else:
-            self.person_detected.clear()
-    
-    def is_stop_sign_detected(self) -> bool:
-        return self.stop_sign_detected.is_set()
-    
-    def is_person_detected(self) -> bool:
-        return self.person_detected.is_set()
 
 class AStarPlanner:
     """Optimized A* path planner with DFS and set-based avoidance."""
@@ -581,7 +455,15 @@ class IntegratedSelfDrivingSystem:
         
         if enable_hardware:
             self.car_controller = CarController(self.config)
-            self.object_detector = ObjectDetector(self.config)
+            if HW_AVAILABLE:
+                try:
+                    self.object_detector = ObjectDetectorHW()
+                    logger.info("Hardware ObjectDetector initialized")
+                except Exception as e:
+                    logger.warning(f"ObjectDetector initialization failed: {e}")
+                    self.object_detector = None
+            else:
+                self.object_detector = None
         else:
             # Use mock implementations for testing
             self.car_controller = None
@@ -749,23 +631,18 @@ class IntegratedSelfDrivingSystem:
                 # Enhanced object detection checks
                 if self.object_detector:
                     try:
-                        # Check for stop signs
-                        if self.object_detector.is_stop_sign_detected():
-                            logger.info("STOP SIGN DETECTED: Stopping for traffic rule")
+                        # Check for stop signs and obstacles  
+                        if self.object_detector.is_halt_needed():
+                            logger.info("OBSTACLE/STOP SIGN DETECTED: Stopping for traffic rule")
                             self.car_controller.stop()
                             self.is_moving = False
                             await asyncio.sleep(self.config.STOP_SIGN_PAUSE)
                             # Re-scan after stop sign
                             await self._perform_initial_scan()
                         
-                        # Check for people (high priority)
-                        if self.object_detector.is_person_detected():
-                            logger.warning("PERSON DETECTED: Stopping for safety")
-                            self.emergency_stop.set()
-                            self.car_controller.stop()
-                            self.is_moving = False
-                            # Wait longer for person to move
-                            await asyncio.sleep(2.0)
+                        # The is_halt_needed() method already covers both stop signs and people
+                        # so we don't need separate person detection here
+                        
                     except Exception as e:
                         logger.warning(f"Object detection error: {e}")
                 
@@ -1017,26 +894,34 @@ class IntegratedSelfDrivingSystem:
         """Execute a precise turn maneuver with improved steering."""
         self.is_moving = False
         
-        # Calculate turn time based on error magnitude (more precise)
-        base_turn_time = 0.2  # Base time per radian
-        turn_time = min(abs(heading_error) * base_turn_time, 0.6)  # Max 0.6 second turn
+        # Convert to degrees for easier calculation
+        angle_degrees = np.degrees(heading_error)
         
         # Apply steering correction factor
         corrected_error = heading_error * self.config.STEERING_CORRECTION_FACTOR
+        corrected_angle_degrees = np.degrees(corrected_error)
         
-        logger.info(f"Turning {np.degrees(heading_error):.1f} degrees (corrected: {np.degrees(corrected_error):.1f})")
+        logger.info(f"Turning {angle_degrees:.1f} degrees (corrected: {corrected_angle_degrees:.1f})")
         
-        if heading_error > 0:
-            self.car_controller.turn_left(self.config.TURN_POWER)
-        else:
-            self.car_controller.turn_right(self.config.TURN_POWER)
-        
-        await asyncio.sleep(turn_time)
-        self.car_controller.stop()
-        
-        # CRITICAL FIX: Reset steering servo to straight position after turn
+        # Set steering angle based on turn direction (like integrated_main.py)
         if self.car_controller.picar:
+            if angle_degrees > 0:  # Turn right
+                self.car_controller.picar.set_dir_servo_angle(30 + self.config.SERVO_OFFSET)
+            else:  # Turn left
+                self.car_controller.picar.set_dir_servo_angle(-30 + self.config.SERVO_OFFSET)
+        
+        # Move forward while turning (like integrated_main.py)
+        turn_time = abs(corrected_angle_degrees) / 90 * 0.5  # Rough timing from integrated_main.py
+        turn_time = min(turn_time, 0.6)  # Max turn time
+        
+        if self.car_controller.picar:
+            self.car_controller.picar.forward(self.config.DRIVE_POWER)
+            await asyncio.sleep(turn_time)
+            self.car_controller.picar.stop()
+            
+            # CRITICAL: Return steering to center with servo offset (like integrated_main.py)
             self.car_controller.picar.set_dir_servo_angle(self.config.SERVO_OFFSET)
+            await asyncio.sleep(0.2)  # Extra time for servo to fully center
         
         # Update position with corrected turn amount
         self.current_position.theta += corrected_error
@@ -1088,14 +973,27 @@ class IntegratedSelfDrivingSystem:
         movement_time = movement_step / self.config.DRIVE_SPEED
         
         logger.info(f"Moving straight forward {movement_step:.1f}cm for {movement_time:.2f}s")
+        
+        # CRITICAL: Ensure steering is centered with servo offset before moving (like integrated_main.py)
+        if self.car_controller.picar:
+            self.car_controller.picar.set_dir_servo_angle(self.config.SERVO_OFFSET)
+            await asyncio.sleep(0.1)  # Give servo time to center
+        
         self.car_controller.move_forward(self.config.DRIVE_POWER)
         await asyncio.sleep(movement_time)
         self.car_controller.stop()
         
-        # Update position with precise movement
+        # Update position with precise movement using integrated_main.py coordinate system
         actual_distance = movement_step  # Assume precise movement
-        self.current_position.x += actual_distance * np.cos(self.current_position.theta)
-        self.current_position.y += actual_distance * np.sin(self.current_position.theta)
+        
+        # COORDINATE SYSTEM from integrated_main.py: X=left/right, Y=forward/backward, heading=0 is forward
+        # heading=0 → forward (+Y), heading=pi/2 → left (-X), heading=-pi/2 → right (+X)
+        # CORRECTED FORMULA: X increases when heading is negative (right turns)
+        new_x = self.current_position.x - actual_distance * np.sin(self.current_position.theta)   # Left/right movement (FIXED)
+        new_y = self.current_position.y + actual_distance * np.cos(self.current_position.theta)   # Forward/backward movement
+        
+        self.current_position.x = new_x
+        self.current_position.y = new_y
         
         # Clamp position to valid boundaries
         self.current_position.x = max(0, min(self.current_position.x, self.config.FIELD_WIDTH))
@@ -1120,17 +1018,9 @@ class IntegratedSelfDrivingSystem:
             self.car_controller.set_servo_angle(0)
             await asyncio.sleep(0.1)  # Allow servo to move
             
-            # Capture and analyze frame
+            # Check for obstacles in camera view
             try:
-                detections = self.object_detector.get_detections()
-                
-                # Check for obstacles in camera view
-                obstacle_detected = False
-                if detections:
-                    for detection in detections:
-                        if detection.get('confidence', 0) > 0.5:  # High confidence detection
-                            obstacle_detected = True
-                            logger.warning(f"Camera detected: {detection.get('class', 'unknown')} with confidence {detection.get('confidence', 0):.2f}")
+                obstacle_detected = self.object_detector.is_halt_needed()
                 
                 if obstacle_detected:
                     await self._handle_camera_obstacle()

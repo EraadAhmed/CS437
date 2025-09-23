@@ -44,13 +44,16 @@ class Navigator:
         picarx,
         width_cm=120,
         length_cm=380,
-        sampling=2,
+        sampling=1,
         car_width=14,
         car_length=23,
+        start_pos_cm=(59, 0),      # Input in cm
         start_angle=90.0,
+        goal_xy_cm=(59, 379),      # Input in cm
         servo_max_degs=30,
         speed=30.5
-    ):
+):
+
         self.px = picarx
         self.detector = ObjectDetector(model_path='efficientdet_lite0.tflite')
         self.SAMPLING = float(sampling)
@@ -61,13 +64,18 @@ class Navigator:
         self.dt_scaled = float(1.0 / speed) * self.SAMPLING
         self.CAR_W_SCALED = int(np.ceil(car_width / self.SAMPLING))
         self.CAR_L_SCALED = int(np.ceil(car_length / self.SAMPLING))
-        # This initial state is now fully correct
-        self.start_pos=(int(59/self.SAMPLING), int(0/self.SAMPLING)),
-        self.start_state = (int(start_pos[0]), int(start_pos[1]), float(np.radians(start_angle)))
-        self.state = self.start_state
-        self.goal = (int(59/self.SAMPLING), int(379/self.SAMPLING))),
-        self.goal_xy = (int(goal_xy[0]), int(goal_xy[1]))
         
+        # --- SCALING LOGIC ---
+        # 1. Scale the incoming cm coordinates to grid coordinates
+        start_pos_scaled = (start_pos_cm[0] / self.SAMPLING, start_pos_cm[1] / self.SAMPLING)
+        goal_xy_scaled = (goal_xy_cm[0] / self.SAMPLING, goal_xy_cm[1] / self.SAMPLING)
+
+        # 2. Use the scaled values to set the internal state and goal
+        self.start_state = (int(start_pos_scaled[0]), int(start_pos_scaled[1]), float(np.radians(start_angle)))
+        self.state = self.start_state
+        self.goal_xy = (int(goal_xy_scaled[0]), int(goal_xy_scaled[1]))
+        
+        # --- REST OF __init__ ---
         self.servo_max_degs = float(servo_max_degs)
         self.stop_event = asyncio.Event()
         self.map_lock = asyncio.Lock()
@@ -75,7 +83,8 @@ class Navigator:
         self.plan_lock = asyncio.Lock()
         self.path = []
         self.halt_event = asyncio.Event()
-        self.PAN_STEP_DEG = 4.0 # A slightly larger step can be more efficient
+        self.PAN_STEP_DEG = 4.0
+
 
     def log(self, msg: str):
         with open("nav_debug.log", "a") as f:
@@ -255,88 +264,78 @@ class Navigator:
             node = node.parent
         return list(reversed(out))
 
-# In the Navigator class, replace the entire plan_once function with this:
-
+        # In the Navigator class, replace the entire plan_once function with this:
+    # In the Navigator class, replace the entire plan_once function with this:
     async def plan_once(self):
-        self.log("\n[planner] --- Starting New Plan ---")
         start = tuple(self.state)
         goal_xy = self.goal_xy
         counter = itertools.count()
 
         def key_of(state): return (int(round(state[0])), int(round(state[1])))
 
+        # Sanity check: abort if starting in a wall
         if self.collision(start):
-            self.log(f"[planner] ABORT: Start state ({start[0]:.1f}, {start[1]:.1f}) is in collision!")
+            self.log("[planner] ABORT: Start state is in collision!")
             return []
 
-        if key_of(start) == goal_xy:
-            self.log("[planner] SUCCESS: Already at goal.")
+        # If already at the goal, return a path with just the start
+        if euclid_xy(start, goal_xy) < 1.0:
             return [start]
 
+        # The open queue stores potential nodes to visit, prioritized by cost
         openq = PriorityQueue()
+        
+        # g_cost stores the cheapest known cost to get to a specific grid cell
         g_cost = { key_of(start): 0.0 }
         
+        # The heuristic estimates the distance from a state to the goal
         def h_of(state): return math.hypot(state[0] - goal_xy[0], state[1] - goal_xy[1])
 
         start_node = Coordinate(start, 0.0, h=h_of(start), parent=None)
         openq.put((start_node.f(), next(counter), start_node))
-        self.log(f"[planner] Starting A* from ({start[0]:.1f}, {start[1]:.1f}, {math.degrees(start[2]):.1f}°)")
 
-        closed = set()
-        STEERS = np.radians([-30, -20, -10, 0, 10, 20, 30])
-        
-        # Limit the search to prevent infinite loops in impossible situations
-        max_iterations = 3000
-        
+        # We will limit the search to prevent it from running forever on impossible maps
+        max_iterations = 2000 
         for i in range(max_iterations):
             if openq.empty():
-                self.log("[planner] ABORT: Open queue is empty. No path found.")
+                self.log("[planner] ABORT: Open queue is empty. Goal is unreachable.")
                 return []
 
+            # Get the node with the lowest cost to explore next
             _, _, cur = openq.get()
-            ckey = key_of(cur.state)
 
-            if ckey in closed:
-                continue
-            closed.add(ckey)
-
+            # If we are close enough to the goal, we're done
             if euclid_xy(cur.state, goal_xy) < 5.0:
-                self.log("[planner] SUCCESS: Found a path to the goal.")
+                self.log(f"[planner] SUCCESS: Found path after {i} iterations.")
                 return self.reconstruct(cur)
 
-            # Log the state we are expanding
-            if i % 100 == 0: # Log every 100th expansion to avoid spam
-                self.log(f"[planner] Expanding node #{i}: state=({cur.state[0]:.1f}, {cur.state[1]:.1f})")
-
-            for control in STEERS:
+            # Explore all possible next moves from the current state
+            for control in np.radians([-30, -20, -10, 0, 10, 20, 30]):
                 nxt = self.step_kinematics(cur.state, control)
 
-                # --- DETAILED DEBUGGING CHECKS ---
-                if not self.boundary_ok(nxt):
-                    # self.log(f"[planner] REJECT: state ({nxt[0]:.1f}, {nxt[1]:.1f}) is out of bounds.")
+                # Prune moves that are invalid
+                if not self.boundary_ok(nxt) or self.collision(nxt):
                     continue
-                
-                if self.collision(nxt):
-                    # self.log(f"[planner] REJECT: state ({nxt[0]:.1f}, {nxt[1]:.1f}) is in collision.")
-                    continue
-                
+
+                # Ensure the car is generally moving forward
                 dx = nxt[0] - cur.state[0]
                 dy = nxt[1] - cur.state[1]
                 forward = dx * math.cos(cur.state[2]) + dy * math.sin(cur.state[2])
-                if forward < 0:
-                    # self.log(f"[planner] REJECT: state ({nxt[0]:.1f}, {nxt[1]:.1f}) is not a forward move.")
+                print("forward:", forward)
+                if forward < -0.01: # Allow for slight non-forward movement in turns
                     continue
-                # --- END DEBUGGING CHECKS ---
-
+                    
                 nkey = key_of(nxt)
                 ng = cur.g + euclid_xy(cur.state, nxt)
 
+                # This is the core of A*: only consider this new path if it's
+                # better than any previous path to this same grid cell.
                 if nkey not in g_cost or ng < g_cost[nkey]:
                     g_cost[nkey] = ng
                     node = Coordinate(nxt, ng, h_of(nxt), parent=cur)
                     openq.put((node.f(), next(counter), node))
 
-        self.log(f"[planner] ABORT: Exceeded max iterations ({max_iterations}). No path found.")
+        self.log(f"[planner] ABORT: Exceeded max iterations ({max_iterations}).")
         return []
 
     async def plan_loop(self):
