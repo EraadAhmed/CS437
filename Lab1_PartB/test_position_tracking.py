@@ -16,7 +16,7 @@ async def test_position_tracking():
     # Simulate the coordinate system and position tracking logic
     SAMPLING = 1  # 1cm per grid unit
     SPEED = 30.5  # cm/s 
-    SERVO_OFFSET = -2
+    SERVO_OFFSET = 0  # Hardware fixed: no offset needed
     
     # Starting position
     current_pos = (60, 200, 0)  # x, y, theta

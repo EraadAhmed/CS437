@@ -15,7 +15,7 @@ async def test_servo_calibration():
     print("Observe the front wheels during each position:")
     print()
     
-    picarx = Picarx()
+    picarx = Picarx(servo_pins=["P0", "P1", "P3"])
     
     try:
         positions = [

@@ -41,7 +41,7 @@ class IntegratedSelfDrivingSystem:
         self.DELTA_T = 0.5  # Increased from 0.25 to make larger steps
         
         # Servo calibration - adjust this if car drifts left/right when going "straight"
-        self.SERVO_OFFSET = -2  # Reduced from -3 since car drifted slightly left
+        self.SERVO_OFFSET = 0  # Hardware fixed: no offset needed
         
         # Initialize positions - start at beginning middle, goal 380cm forward
         self.start_pos = Coordinate((60, 0, 0))   # Middle of 120cm width, at 0cm length

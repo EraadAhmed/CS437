@@ -78,7 +78,7 @@ class SystemConfig:
     DRIVE_SPEED: float = 25.0     # cm/s - reduced for better control
     TURN_POWER: int = 35
     DRIVE_POWER: int = 35
-    SERVO_OFFSET: int = -5       # Calibration offset for straight driving (negative = steer left to counter right drift)
+    SERVO_OFFSET: int = 0        # Hardware fixed: no calibration offset needed
     STEERING_CORRECTION_FACTOR: float = 0.5  # Factor for steering corrections (reduced from 0.8)
     
     # Timing parameters
@@ -374,7 +374,7 @@ class CarController:
         
         if HW_AVAILABLE:
             try:
-                self.picar = Picarx()
+                self.picar = Picarx(servo_pins=["P0", "P1", "P3"])
                 logger.info("PiCar hardware initialized")
             except Exception as e:
                 logger.error(f"PiCar initialization failed: {e}")

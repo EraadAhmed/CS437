@@ -45,7 +45,7 @@ class DistanceCalibrator:
         
         if HW_AVAILABLE:
             try:
-                self.picar = Picarx()
+                self.picar = Picarx(servo_pins=["P0", "P1", "P3"])
                 logger.info("PiCar initialized for distance calibration")
             except Exception as e:
                 logger.error(f"PiCar initialization failed: {e}")

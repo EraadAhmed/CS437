@@ -312,7 +312,7 @@ class Navigator:
             # Explore all possible next moves from the current state
             for control in np.radians([-30, -20, -10, 0, 10, 20, 30]):
                 nxt = self.step_kinematics(cur.state, control)
-
+                print("nxt:", nxt)
                 # Prune moves that are invalid
                 if not self.boundary_ok(nxt) or self.collision(nxt):
                     continue
@@ -320,7 +320,7 @@ class Navigator:
                 # Ensure the car is generally moving forward
                 dx = nxt[0] - cur.state[0]
                 dy = nxt[1] - cur.state[1]
-                forward = dx * math.cos(cur.state[2]) + dy * math.sin(cur.state[2])
+                forward = dy * math.sin(cur.state[2])
                 print("forward:", forward)
                 if forward < -0.01: # Allow for slight non-forward movement in turns
                     continue
@@ -416,17 +416,59 @@ class Navigator:
             self.map_dirty.set()
             await asyncio.sleep(0.1)
 
+    # async def start(self):
+    #     # ... (this function is fine)
+    #     open("nav_debug.log", "w").close()
+    #     self.px.set_cam_pan_angle(0)
+    #     self.px.set_dir_servo_angle(0)
+    #     await self.calibrate()
+    #     self.map_dirty.set()
+    #     tasks = [  
+    #         asyncio.create_task(self.ultrasonic_pan_loop(), name="sensor"),
+    #         asyncio.create_task(self.car_map_loop(), name="carstamp"),
+    #         asyncio.create_task(self.plan_loop(), name="planner"),
+    #         asyncio.create_task(self.control_loop(), name="controller"),
+    #         asyncio.create_task(self.vision_loop(), name="vision"),
+    #         asyncio.create_task(self.display_loop(), name="display"),
+    #     ]
+    #     try:
+    #         await asyncio.gather(*tasks)
+    #     except asyncio.CancelledError: pass
+    #     finally: self.stop()
+    # In the Navigator class, replace the entire start() method with this one:
+
     async def start(self):
-        # ... (this function is fine)
         open("nav_debug.log", "w").close()
         self.px.set_cam_pan_angle(0)
         self.px.set_dir_servo_angle(0)
-        await self.calibrate()
-        self.map_dirty.set()
+
+        # 1. Bypassing map creation and complex planning.
+        # We know the space is open, so we don't need a map for this test.
+        # await self.calibrate() 
+
+        # 2. Manually create a simple straight path from start to goal.
+        self.log("[start] Creating simple straight-line path.")
+        path_list = []
+        num_waypoints = 20  # Create 20 waypoints
+        start_x, start_y, start_theta = self.start_state
+        goal_x, goal_y = self.goal_xy
+
+        # Use numpy to create evenly spaced points
+        y_points = np.linspace(start_y, goal_y, num_waypoints)
+
+        for y in y_points:
+            # Each waypoint is (x, y, theta)
+            path_list.append((start_x, y, start_theta))
+        
+        # Load the simple path into the navigator
+        async with self.plan_lock:
+            self.path = path_list
+        
+        self.log(f"[start] Path created with {len(self.path)} waypoints.")
+
+        # 3. Run only the essential tasks: driving, car display, and safety camera.
         tasks = [  
-            asyncio.create_task(self.ultrasonic_pan_loop(), name="sensor"),
             asyncio.create_task(self.car_map_loop(), name="carstamp"),
-            asyncio.create_task(self.plan_loop(), name="planner"),
             asyncio.create_task(self.control_loop(), name="controller"),
             asyncio.create_task(self.vision_loop(), name="vision"),
             asyncio.create_task(self.display_loop(), name="display"),

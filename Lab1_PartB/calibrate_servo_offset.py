@@ -15,7 +15,7 @@ async def test_servo_offsets():
     print("Place the car at the start of the hallway, pointing forward.")
     print()
     
-    picarx = Picarx()
+    picarx = Picarx(servo_pins=["P0", "P1", "P3"])
     
     # Test different offsets
     offsets_to_test = [0, -2, -4, -6, 2, 4]  # Start with current and try others

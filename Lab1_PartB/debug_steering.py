@@ -11,7 +11,7 @@ async def test_steering():
     
     print("=== Steering Debug Test ===")
     
-    picarx = Picarx()
+    picarx = Picarx(servo_pins=["P0", "P1", "P3"])
     
     try:
         print("1. Testing servo centering...")
