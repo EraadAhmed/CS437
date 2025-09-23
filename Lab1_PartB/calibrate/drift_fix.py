@@ -18,7 +18,7 @@ except ImportError:
     HW_AVAILABLE = False
 
 try:
-    from fixed_object_detection import ObjectDetector
+    from calibrate.fixed_object_detection import ObjectDetector
     DETECTION_AVAILABLE = True
 except ImportError:
     print("WARNING: Object detection not available")
