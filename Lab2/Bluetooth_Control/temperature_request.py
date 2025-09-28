@@ -3,7 +3,7 @@ import threading
 from collections import deque
 import signal
 import time
-
+import readchar
 server_addr = '88:A2:9E:2B:1A:4F'
 server_port = 1
 
@@ -84,11 +84,13 @@ cth.start()
 print("finish join")
 j = 0
 while not exit_event.is_set():
-    dq_lock.acquire()
-    message_queue.append("TEMP" + "\r\n")
-    dq_lock.release()
-    #j += 1
-    time.sleep(2)
+    key = readchar.readkey()
+    key = key.lower()
+    if key == 't':
+        dq_lock.acquire()
+        message_queue.append("TEMP" + "\r\n")
+        dq_lock.release()
+    time.sleep(0.5)
 
 print("Disconnected.")
 
