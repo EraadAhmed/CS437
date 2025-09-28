@@ -83,7 +83,7 @@ def start_client():
                         raw_read = battery_adcport.read()
                         bat_level = float(raw_read/((PRECISION**2)-1))*100
                         dq_lock.acquire()
-                        message_queue.append("battery pack %:" + str(temp) + "% " + " \r\n")
+                        message_queue.append("battery pack %:" + str(bat_level) + "% " + " \r\n")
                         dq_lock.release()
 
                 except socket.error as e:
