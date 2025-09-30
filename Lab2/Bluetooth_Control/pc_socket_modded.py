@@ -94,6 +94,31 @@ while not exit_event.is_set():
         dq_lock.acquire()
         message_queue.append("BATLEV" + "\r\n")
         dq_lock.release()
+    elif key == 'w':
+        dq_lock.acquire()
+        message_queue.append("FWD" + "\r\n")
+        dq_lock.release()
+        time.sleep(0.1)
+    elif key == 'a':
+        dq_lock.acquire()
+        message_queue.append("LT" + "\r\n")
+        dq_lock.release()
+        time.sleep(0.1)
+    elif key == 's':
+        dq_lock.acquire()
+        message_queue.append("BWD" + "\r\n")
+        dq_lock.release()
+        time.sleep(0.1)
+    elif key == 'd':
+        dq_lock.acquire()
+        message_queue.append("RT" + "\r\n")
+        dq_lock.release()
+        time.sleep(0.1)
+    elif key == 'u':
+        dq_lock.acquire()
+        message_queue.append("SPD" + "\r\n")
+        dq_lock.release()
+
     time.sleep(0.5)
 
 print("Disconnected.")
