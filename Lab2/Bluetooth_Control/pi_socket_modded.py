@@ -62,13 +62,13 @@ def turn_right():
         power += 5
     steer_angle = min(steer_angle, 30)
     px.set_dir_servo_angle(steer_angle)
-    px.forward(80)
         
 def turn_left():
     global steer_angle
     if steer_angle > -30:
         power -= 5
-    steer_angle = max(steer_angle, 30)
+    steer_angle = max(steer_angle, -30)
+    px.set_dir_servo_angle(steer_angle)
 
 def calculate_speed():
     global ploss
@@ -148,14 +148,12 @@ def start_client():
                         dq_lock.acquire()
                         message_queue.append("STEER RT, CURR ANG: " + str(steer_angle) + " degs" + " \r\n")
                         dq_lock.release()
-                        px.set_dir_servo_angle(steer_angle)
                         px.forward(power)
                     elif(data == "LT\r\n"):
                         turn_left()
                         dq_lock.acquire()
                         message_queue.append("STEER LT, CURR ANG: " + str(steer_angle) + " degs" + " \r\n")
                         dq_lock.release()
-                        px.set_dir_servo_angle(steer_angle)
                         px.forward(power)
 
                     elif(data == "FWD\r\n"):
