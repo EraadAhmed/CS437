@@ -61,6 +61,8 @@ def turn_right():
     if steer_angle < 30:
         power += 5
     steer_angle = min(steer_angle, 30)
+    px.set_dir_servo_angle(steer_angle)
+    px.forward(80)
         
 def turn_left():
     global steer_angle
@@ -80,7 +82,6 @@ def calculate_speed():
     
     speed = max_speed * (abs_power - ploss) / (pmax - ploss)
     speed = min(speed, max_speed)
-    
     # Apply sign of power (positive for forward, negative for backward)
     return speed if power >= 0 else -speed
 
@@ -138,7 +139,7 @@ def start_client():
                         message_queue.append("battery percent: " + str(round(bat_level, 2)) + "% " + " \r\n")
                         dq_lock.release()
                     elif(data == "SPD\r\n"):
-                        spd = calculate_speed
+                        spd = calculate_speed()
                         dq_lock.acquire()
                         message_queue.append("Curr SPD (cm/s): " + str(spd) + " cm/s" + " \r\n")
                         dq_lock.release()
@@ -147,11 +148,15 @@ def start_client():
                         dq_lock.acquire()
                         message_queue.append("STEER RT, CURR ANG: " + str(steer_angle) + " degs" + " \r\n")
                         dq_lock.release()
+                        px.set_dir_servo_angle(steer_angle)
+                        px.forward(power)
                     elif(data == "LT\r\n"):
                         turn_left()
                         dq_lock.acquire()
                         message_queue.append("STEER LT, CURR ANG: " + str(steer_angle) + " degs" + " \r\n")
                         dq_lock.release()
+                        px.set_dir_servo_angle(steer_angle)
+                        px.forward(power)
 
                     elif(data == "FWD\r\n"):
                         increase_velocity()
@@ -204,6 +209,7 @@ def start_client():
             output_lock.release()
     server_sock.close()
     sock.close()
+    px.stop()
     print("client thread end")
     print("BLUETOOTH OPS CLOSED")
 
