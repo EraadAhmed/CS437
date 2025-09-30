@@ -59,14 +59,14 @@ def decrease_velocity():
 def turn_right():
     global steer_angle
     if steer_angle < 30:
-        power += 5
+        steer_angle += 5
     steer_angle = min(steer_angle, 30)
     px.set_dir_servo_angle(steer_angle)
         
 def turn_left():
     global steer_angle
     if steer_angle > -30:
-        power -= 5
+        steer_angle -= 5
     steer_angle = max(steer_angle, -30)
     px.set_dir_servo_angle(steer_angle)
 
