@@ -126,7 +126,7 @@ def start_client():
             try:
                 try:
                     data = sock.recv(1024).decode('utf-8')
-                    
+                    px.set_dir_servo_angle(0)
                     if data == "TEMP\r\n":
                         temp = get_pi_temperature()
                         dq_lock.acquire()
@@ -209,9 +209,11 @@ def start_client():
                 print(output_split[i])
             output = output_split[-1]
             output_lock.release()
+    
+    px.set_dir_servo_angle(0)
+    px.stop()
     server_sock.close()
     sock.close()
-    px.stop()
     print("client thread end")
     print("BLUETOOTH OPS CLOSED")
 
