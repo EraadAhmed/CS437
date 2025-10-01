@@ -157,6 +157,8 @@ def start_client():
                         px.forward(power)
 
                     elif(data == "FWD\r\n"):
+                        steer_angle = 0
+                        px.set_dir_servo_angle(steer_angle)
                         increase_velocity()
                         if power == 0:
                             px.forward(power)
@@ -175,6 +177,8 @@ def start_client():
                             dq_lock.release()
 
                     elif(data == "BWD\r\n"):
+                        steer_angle = 0
+                        px.set_dir_servo_angle(steer_angle)
                         decrease_velocity()
                         if power == 0:
                             px.forward(power)
