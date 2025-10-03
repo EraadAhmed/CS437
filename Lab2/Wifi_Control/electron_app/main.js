@@ -1,5 +1,5 @@
 const { app, BrowserWindow, Menu, ipcMain } = require('electron');
-const net = require('node:net');
+const net = require('net');
 const path = require('path');
 
 const isMac = process.platform === 'darwin';

@@ -1,29 +1,34 @@
-const carApi = window.carApi || null;
-const hostInput = document.getElementById('host-input');
-const portInput = document.getElementById('port-input');
-const connectBtn = document.getElementById('connect-btn');
-const disconnectBtn = document.getElementById('disconnect-btn');
-const statusBadge = document.getElementById('connection-status');
-const telemetryFields = {
-  temperature_c: document.getElementById('metric-temp'),
-  speed_cm_s: document.getElementById('metric-speed'),
-  battery_percent: document.getElementById('metric-battery'),
-  power_percent: document.getElementById('metric-power'),
-  steering_deg: document.getElementById('metric-steering'),
-};
-const commandButtons = document.querySelectorAll('[data-command]');
-const logContainer = document.getElementById('log-container');
+if (window.__carDashboardInitialized) {
+  console.warn('IoT Car Control renderer script already loaded; skipping duplicate initialization.');
+} else {
+  window.__carDashboardInitialized = true;
+  (function () {
+    const carApi = window.carApi || null;
+    const hostInput = document.getElementById('host-input');
+    const portInput = document.getElementById('port-input');
+    const connectBtn = document.getElementById('connect-btn');
+    const disconnectBtn = document.getElementById('disconnect-btn');
+    const statusBadge = document.getElementById('connection-status');
+    const telemetryFields = {
+      temperature_c: document.getElementById('metric-temp'),
+      speed_cm_s: document.getElementById('metric-speed'),
+      battery_percent: document.getElementById('metric-battery'),
+      power_percent: document.getElementById('metric-power'),
+      steering_deg: document.getElementById('metric-steering'),
+    };
+    const commandButtons = document.querySelectorAll('[data-command]');
+    const logContainer = document.getElementById('log-container');
 
-const MAX_LOG_ENTRIES = 250;
-let isConnected = false;
-let suppressLogs = false;
-const currentTelemetry = {
-  temperature_c: null,
-  speed_cm_s: null,
-  battery_percent: null,
-  power_percent: null,
-  steering_deg: null,
-};
+    const MAX_LOG_ENTRIES = 250;
+    let isConnected = false;
+    let suppressLogs = false;
+    const currentTelemetry = {
+      temperature_c: null,
+      speed_cm_s: null,
+      battery_percent: null,
+      power_percent: null,
+      steering_deg: null,
+    };
 
 function applyDefaults() {
   if (!carApi) {
@@ -247,4 +252,6 @@ if (!carApi) {
   registerListeners();
   setStatus('idle', 'Idle');
   makeLogEntry('info', 'Ready. Configure the IP address of your Raspberry Pi and press Connect.');
+}
+  })();
 }
