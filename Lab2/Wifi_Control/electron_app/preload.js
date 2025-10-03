@@ -1,6 +1,6 @@
 const { contextBridge } = require('electron');
-const net = require('net');
-const { EventEmitter } = require('events');
+const net = require('node:net');
+const { EventEmitter } = require('node:events');
 
 const DEFAULT_HOST = process.env.CAR_HOST || '192.168.125.22';
 const DEFAULT_PORT = Number.parseInt(process.env.CAR_PORT || '65432', 10);

@@ -1,3 +1,4 @@
+const carApi = window.carApi || null;
 const hostInput = document.getElementById('host-input');
 const portInput = document.getElementById('port-input');
 const connectBtn = document.getElementById('connect-btn');
@@ -25,7 +26,10 @@ const currentTelemetry = {
 };
 
 function applyDefaults() {
-  const { host, port } = window.carApi.defaults;
+  if (!carApi) {
+    return;
+    }
+  const { host, port } = carApi.defaults;
   hostInput.value = host;
   portInput.value = port;
 }
@@ -98,7 +102,7 @@ function makeLogEntry(level, message, details) {
 function handleCommandClick(event) {
   const command = event.currentTarget.dataset.command;
   try {
-    window.carApi.sendCommand(command);
+    carApi.sendCommand(command);
     makeLogEntry('command', `Sent ${command}`);
   } catch (error) {
     makeLogEntry('error', `Failed to send ${command}`, { message: error.message });
@@ -165,7 +169,7 @@ function registerListeners() {
     if (command) {
       event.preventDefault();
       try {
-        window.carApi.sendCommand(command);
+        carApi.sendCommand(command);
         makeLogEntry('command', `Sent ${command} (keyboard)`);
       } catch (error) {
         makeLogEntry('error', `Failed to send ${command}`, { message: error.message });
@@ -173,14 +177,14 @@ function registerListeners() {
     }
   });
 
-  window.carApi.on('connected', ({ host, port }) => {
+  carApi.on('connected', ({ host, port }) => {
     isConnected = true;
     setControlsEnabled(true);
     setStatus('connected', `Connected to ${host}:${port}`);
     makeLogEntry('info', 'Connected', { host, port });
   });
 
-  window.carApi.on('disconnected', () => {
+  carApi.on('disconnected', () => {
     isConnected = false;
     setControlsEnabled(false);
     connectBtn.disabled = false;
@@ -190,11 +194,11 @@ function registerListeners() {
     setStatus('idle', 'Disconnected');
   });
 
-  window.carApi.on('telemetry', (payload) => {
+  carApi.on('telemetry', (payload) => {
     updateTelemetry(payload);
   });
 
-  window.carApi.on('ack', (payload) => {
+  carApi.on('ack', (payload) => {
     updateTelemetry(payload);
     makeLogEntry('ack', `Command ${payload.command} acknowledged`, {
       status: payload.status,
@@ -203,12 +207,12 @@ function registerListeners() {
     });
   });
 
-  window.carApi.on('error', (error) => {
+  carApi.on('error', (error) => {
     setStatus('error', error.message || 'Socket error');
     makeLogEntry('error', 'Socket error', { message: error.message });
   });
 
-  window.carApi.on('message', (payload) => {
+  carApi.on('message', (payload) => {
     if (payload.type === 'raw') {
       makeLogEntry('warn', 'Non-JSON payload', { raw: payload.raw });
     }
@@ -216,12 +220,19 @@ function registerListeners() {
 
   window.addEventListener('beforeunload', () => {
     suppressLogs = true;
-    window.carApi.disconnect();
+    carApi?.disconnect();
   });
 }
 
-applyDefaults();
-setControlsEnabled(false);
-registerListeners();
-setStatus('idle', 'Idle');
-makeLogEntry('info', 'Ready. Configure the IP address of your Raspberry Pi and press Connect.');
+if (!carApi) {
+  setStatus('error', 'Preload bridge unavailable');
+  connectBtn.disabled = true;
+  disconnectBtn.disabled = true;
+  makeLogEntry('error', 'Failed to load preload script. Restart the app.');
+} else {
+  applyDefaults();
+  setControlsEnabled(false);
+  registerListeners();
+  setStatus('idle', 'Idle');
+  makeLogEntry('info', 'Ready. Configure the IP address of your Raspberry Pi and press Connect.');
+}
