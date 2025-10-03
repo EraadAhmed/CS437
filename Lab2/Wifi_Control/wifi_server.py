@@ -1,8 +1,8 @@
+import json
 import socket
 import threading
-from collections import deque
-import signal
 import time
+
 from robot_hat import ADC
 from picarx import Picarx
 
@@ -11,26 +11,39 @@ HOST = "192.168.125.22" # IP address of your Raspberry PI
 PORT = 65432          # Port to listen on (non-privileged ports are > 1023)
 
 buf_size = 1024
-PRECISION = 12 #12 bit precision of the values in the registers
+PRECISION = 12   # 12 bit precision of the values in the registers
 
-battery_adcport = ADC('A4')
+battery_adcport = ADC("A4")
 
 exit_event = threading.Event()
 
-control_queue = deque([])
-output = ""
-
 send_lock = threading.Lock()
-queue_lock = threading.Lock()
-recieve_lock = threading.Lock()
 
 power = 0
 steer_angle = 0
-ploss = 3 # loss due to environmental factors
-pmax = 100 #max power for motor
-max_speed = 65 #cm/s
+ploss = 3  # loss due to environmental factors
+pmax = 100  # max power for motor
+max_speed = 65  # cm/s
+
+STEER_MAX = 30
+STEER_STEP = 5
+POWER_STEP = 10
 
 px = Picarx(servo_pins=['P0','P1','P3'])
+
+
+def apply_motion():
+    """Drive the car using the current power value."""
+    if power > 0:
+        px.forward(power)
+    elif power < 0:
+        px.backward(abs(power))
+    else:
+        px.stop()
+
+
+def clamp(value, minimum, maximum):
+    return max(minimum, min(maximum, value))
 
 def get_pi_temperature():
     with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
@@ -39,29 +52,42 @@ def get_pi_temperature():
 
 def increase_velocity():
     global power
-    if power < 100:
-        power += 10
-    power = min(power, 100)
+    power = clamp(power + POWER_STEP, -100, 100)
+    apply_motion()
 
 def decrease_velocity():
     global power
-    if power > -100:
-        power -= 10
-    power = max(power,-100)
+    power = clamp(power - POWER_STEP, -100, 100)
+    apply_motion()
 
 def turn_right():
     global steer_angle
-    if steer_angle < 30:
-        steer_angle += 5
-    steer_angle = min(steer_angle, 30)
+    steer_angle = clamp(steer_angle + STEER_STEP, -STEER_MAX, STEER_MAX)
     px.set_dir_servo_angle(steer_angle)
         
 def turn_left():
     global steer_angle
-    if steer_angle > -30:
-        steer_angle -= 5
-    steer_angle = max(steer_angle, -30)
+    steer_angle = clamp(steer_angle - STEER_STEP, -STEER_MAX, STEER_MAX)
     px.set_dir_servo_angle(steer_angle)
+
+
+def straighten():
+    global steer_angle
+    steer_angle = 0
+    px.set_dir_servo_angle(steer_angle)
+
+
+def stop_vehicle():
+    global power
+    power = 0
+    apply_motion()
+
+
+def send_packet(client, payload):
+    message = json.dumps(payload) + "\n"
+    encoded = message.encode("utf-8")
+    with send_lock:
+        client.sendall(encoded)
 
 def calculate_speed():
     global ploss
@@ -80,10 +106,9 @@ def calculate_speed():
 
 def telemetry_loop(client):
     global battery_adcport
-    global send_lock 
-    global queue_lock
     global exit_event
     global power
+    global steer_angle
     """Continuously send telemetry to client."""
     while not exit_event.is_set():
         try:
@@ -92,106 +117,123 @@ def telemetry_loop(client):
             raw_read = battery_adcport.read()
             bat_level = float(raw_read / ((2**PRECISION)-1)) * 100
 
-            msg = (
-                f"TEMP:{temp:.2f}C "
-                f"SPD:{spd:.2f}cm/s "
-                f"BAT:{bat_level:.2f}%\r\n"
-                f"PWR:{power:.2f}%\r\n"
-            )
-            send_lock.acquire()
-            client.sendall(msg.encode("utf-8"))
-            send_lock.release()
+            payload = {
+                "type": "telemetry",
+                "temperature_c": round(temp, 2),
+                "speed_cm_s": round(spd, 2),
+                "battery_percent": round(bat_level, 2),
+                "power_percent": float(power),
+                "steering_deg": float(steer_angle),
+                "timestamp": time.time(),
+            }
+            send_packet(client, payload)
         except Exception as e:
             print("Telemetry loop error:", e)
+            exit_event.set()
             break
         time.sleep(1)  # send once per second
 
 def control_loop(client):
-    global send_lock
-    global queue_lock
-    global output
-    global exit_event
-    global px
+    buffer = ""
     while not exit_event.is_set():
-        if send_lock.acquire(blocking=False):
-            queue_lock.acquire()
-            if(len(control_queue) > 0):
-                try:
-                    sent = client.send(bytes(control_queue[0], 'utf-8'))
-                except Exception as e:
-                    exit_event.set()
-                    continue
-                if sent < len(control_queue[0]):
-                    control_queue[0] = control_queue[0][sent:]
-                else:
-                    control_queue.popleft()
-            queue_lock.release()
-            send_lock.release()
-        
-        if queue_lock.acquire(blocking=False):
-            data = ""
-            try:
-                try:
-                    data = client.recv(1024).decode('utf-8')
-                    px.set_dir_servo_angle(0)
-                    if(data == "RT\r\n"):
-                        turn_right()
-                        control_queue.append("STEER RT, CURR ANG: " + str(steer_angle) + " degs" + " \r\n")
-                        px.forward(power)
-                    elif(data == "LT\r\n"):
-                        turn_left()
-                        control_queue.append("STEER LT, CURR ANG: " + str(steer_angle) + " degs" + " \r\n")
-                        px.forward(power)
-                    elif(data == "FWD\r\n"):
-                        steer_angle = 0
-                        px.set_dir_servo_angle(steer_angle)
-                        increase_velocity()
-                        if power == 0:
-                            px.forward(power)
-                            control_queue.append("Vehicle Stopped" + "\r\n")
-                        elif power > 0:
-                            px.forward(power)
-                            control_queue.append("SPEEDING UP, POWER: " + str(power) +  " \r\n")
-                        elif power < 0:
-                            px.backward(abs(power))
-                            control_queue.append("SLOWING DOWN, POWER: " + str(power) +  " \r\n")
-                    elif(data == "BWD\r\n"):
-                        steer_angle = 0
-                        px.set_dir_servo_angle(steer_angle)
-                        decrease_velocity()
-                        if power == 0:
-                            px.forward(power)
-                            control_queue.append("Vehicle Stopped" + "\r\n")
-                        elif power > 0:
-                            px.forward(power)
-                            control_queue.append("SLOWING DOWN, POWER: " + str(power) +  " \r\n")
-                        elif power < 0:
-                            px.backward(abs(power))
-                            control_queue.append("SPEEDING UP, POWER: " + str(power) +  " \r\n")
-                    queue_lock.release()
-                except socket.error as e:
-                    queue_lock.release()
-                    assert(1==1)
-                    #no data
-            except Exception as e:
+        try:
+            chunk = client.recv(buf_size)
+            if not chunk:
                 exit_event.set()
+                break
+            buffer += chunk.decode("utf-8")
+        except socket.timeout:
+            continue
+        except BlockingIOError:
+            time.sleep(0.05)
+            continue
+        except Exception as exc:
+            print("Control loop error:", exc)
+            exit_event.set()
+            break
+
+        while True:
+            newline_index = buffer.find("\n")
+            carriage_index = buffer.find("\r")
+
+            # choose earliest line break if present
+            candidates = [idx for idx in (newline_index, carriage_index) if idx != -1]
+            if not candidates:
+                break
+
+            idx = min(candidates)
+            line = buffer[:idx]
+            buffer = buffer[idx + 1 :]
+
+            command = line.strip()
+            if not command:
                 continue
-            output += data
-            output_split = output.split("\r\n")
-            for i in range(len(output_split) - 1):
-                print(output_split[i])
-            output = output_split[-1]
+
+            handle_command(command, client)
+
+
+def handle_command(command, client):
+    global power
+
+    normalized = command.upper()
+
+    if normalized in ("FWD", "FORWARD"):
+        straighten()
+        increase_velocity()
+        status = "accelerating" if power > 0 else "slowing" if power < 0 else "stopped"
+    elif normalized in ("BWD", "BACK", "BACKWARD", "REV"):
+        straighten()
+        decrease_velocity()
+        status = "accelerating" if power < 0 else "slowing" if power > 0 else "stopped"
+    elif normalized in ("STOP", "HALT"):
+        stop_vehicle()
+        status = "stopped"
+    elif normalized in ("RT", "RIGHT"):
+        turn_right()
+        status = "steering"
+    elif normalized in ("LT", "LEFT"):
+        turn_left()
+        status = "steering"
+    elif normalized in ("CENTER", "STRAIGHT"):
+        straighten()
+        status = "steering"
+    else:
+        send_packet(
+            client,
+            {
+                "type": "error",
+                "command": command,
+                "message": "Unknown command",
+                "timestamp": time.time(),
+            },
+        )
+        return
+
+    send_packet(
+        client,
+        {
+            "type": "ack",
+            "command": normalized,
+            "status": status,
+            "power_percent": float(power),
+            "steering_deg": float(steer_angle),
+            "timestamp": time.time(),
+        },
+    )
 
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    
+
     s.bind((HOST, PORT))
     s.listen(1)
     s.settimeout(10)
     client, clientInfo = s.accept()
     print("Connected")
     s.settimeout(None)
-    client.setblocking(0)
+    client.settimeout(0.5)
+
+    stop_vehicle()
+    straighten()
 
     tloop = threading.Thread(target=telemetry_loop, args=(client,), daemon=True)
     tloop.start()

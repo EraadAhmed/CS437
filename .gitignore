@@ -7,3 +7,51 @@
 /tflite_build/
 /cmake-build-debug/
 /build/
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-debug.log
+.env
+.DS_Store
+
+# Electron
+# Build artifacts
+dist/
+out/
+build/
+release/
+temp/
+*.asar
+*.asar.unpacked
+*.zip
+*.dmg
+*.exe
+*.AppImage
+*-mac.zip
+*-win.zip
+*-linux.zip
+*-arm64.zip
+*-x64.zip
+
+# Electron Forge specific
+.electron-forge/
+
+# Electron Packager specific
+electron-packager/
+
+# Test/development files
+coverage/
+.nyc_output/
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# OS generated files
+*/.DS_Store
+Thumbs.db
+
+# Other temporary files
+tmp/

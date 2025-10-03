@@ -1,0 +1,22 @@
+{
+  "name": "iot-car-control",
+  "version": "1.0.0",
+  "description": "Electron dashboard for Lab 2 WiFi-controlled car",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "npm run lint",
+    "lint": "echo \"No lint configured\""
+  },
+  "keywords": [
+    "electron",
+    "iot",
+    "picar",
+    "telemetry"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.4.0"
+  }
+}

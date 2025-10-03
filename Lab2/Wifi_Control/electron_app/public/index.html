@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IoT Car Control Panel</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>IoT Car Control Panel</h1>
+      <p class="subtitle">Monitor telemetry and drive your Raspberry Pi car over WiFi</p>
+    </header>
+
+    <section class="connection-panel">
+      <div class="field">
+        <label for="host-input">Car IP address</label>
+        <input id="host-input" type="text" />
+      </div>
+      <div class="field">
+        <label for="port-input">Port</label>
+        <input id="port-input" type="number" min="1" max="65535" />
+      </div>
+      <div class="controls">
+        <button id="connect-btn" class="primary">Connect</button>
+        <button id="disconnect-btn" class="secondary" disabled>Disconnect</button>
+        <span id="connection-status" class="status status-idle">Idle</span>
+      </div>
+    </section>
+
+    <main class="layout">
+      <section class="telemetry">
+        <h2>Telemetry</h2>
+        <div class="metrics-grid">
+          <article class="metric-card">
+            <h3>Temperature</h3>
+            <p id="metric-temp" class="metric-value">-- °C</p>
+          </article>
+          <article class="metric-card">
+            <h3>Speed</h3>
+            <p id="metric-speed" class="metric-value">-- cm/s</p>
+          </article>
+          <article class="metric-card">
+            <h3>Battery</h3>
+            <p id="metric-battery" class="metric-value">-- %</p>
+          </article>
+          <article class="metric-card">
+            <h3>Power</h3>
+            <p id="metric-power" class="metric-value">-- %</p>
+          </article>
+          <article class="metric-card">
+            <h3>Steering</h3>
+            <p id="metric-steering" class="metric-value">-- °</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="drive-controls">
+        <h2>Drive Controls</h2>
+        <div class="joystick-grid">
+          <button data-command="FWD" class="control-btn" id="btn-forward" disabled>Forward</button>
+          <div class="joystick-middle">
+            <button data-command="LT" class="control-btn" id="btn-left" disabled>Left</button>
+            <button data-command="STOP" class="control-btn secondary" id="btn-stop" disabled>Stop</button>
+            <button data-command="RT" class="control-btn" id="btn-right" disabled>Right</button>
+          </div>
+          <button data-command="BWD" class="control-btn" id="btn-backward" disabled>Backward</button>
+        </div>
+        <p class="hint">Tip: Use arrow keys or WASD to drive. Press space to stop.</p>
+      </section>
+
+      <section class="messages">
+        <h2>Event Log</h2>
+        <div id="log-container" class="log-container"></div>
+      </section>
+    </main>
+
+    <script src="index.js"></script>
+  </body>
+</html>
