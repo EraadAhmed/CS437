@@ -28,7 +28,7 @@ const currentTelemetry = {
 function applyDefaults() {
   if (!carApi) {
     return;
-    }
+  }
   const { host, port } = carApi.defaults;
   hostInput.value = host;
   portInput.value = port;
@@ -99,10 +99,10 @@ function makeLogEntry(level, message, details) {
   logContainer.scrollTop = logContainer.scrollHeight;
 }
 
-function handleCommandClick(event) {
+async function handleCommandClick(event) {
   const command = event.currentTarget.dataset.command;
   try {
-    carApi.sendCommand(command);
+    await carApi.sendCommand(command);
     makeLogEntry('command', `Sent ${command}`);
   } catch (error) {
     makeLogEntry('error', `Failed to send ${command}`, { message: error.message });
@@ -124,7 +124,7 @@ function registerListeners() {
     connectBtn.disabled = true;
 
     try {
-      await window.carApi.connect(host, port);
+      await carApi.connect(host, port);
       setStatus('connected', `Connected to ${host}:${port}`);
       isConnected = true;
       setControlsEnabled(true);
@@ -138,9 +138,14 @@ function registerListeners() {
     }
   });
 
-  disconnectBtn.addEventListener('click', () => {
-    window.carApi.disconnect();
-    makeLogEntry('info', 'Disconnect requested by user');
+  disconnectBtn.addEventListener('click', async () => {
+    try {
+      await carApi.disconnect();
+    } catch (error) {
+      makeLogEntry('error', 'Failed to disconnect cleanly', { message: error.message });
+    } finally {
+      makeLogEntry('info', 'Disconnect requested by user');
+    }
   });
 
   commandButtons.forEach((btn) => btn.addEventListener('click', handleCommandClick));
@@ -161,7 +166,7 @@ function registerListeners() {
     [' ', 'STOP'],
   ]);
 
-  document.addEventListener('keydown', (event) => {
+  document.addEventListener('keydown', async (event) => {
     if (!isConnected || event.repeat) {
       return;
     }
@@ -169,7 +174,7 @@ function registerListeners() {
     if (command) {
       event.preventDefault();
       try {
-        carApi.sendCommand(command);
+        await carApi.sendCommand(command);
         makeLogEntry('command', `Sent ${command} (keyboard)`);
       } catch (error) {
         makeLogEntry('error', `Failed to send ${command}`, { message: error.message });
@@ -207,9 +212,16 @@ function registerListeners() {
     });
   });
 
+  carApi.on('command-error', (payload = {}) => {
+    makeLogEntry('warn', `Command ${payload.command || 'unknown'} rejected`, {
+      message: payload.message,
+    });
+  });
+
   carApi.on('error', (error) => {
-    setStatus('error', error.message || 'Socket error');
-    makeLogEntry('error', 'Socket error', { message: error.message });
+    const message = error?.message || 'Socket error';
+    setStatus('error', message);
+    makeLogEntry('error', 'Socket error', { message });
   });
 
   carApi.on('message', (payload) => {
