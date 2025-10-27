@@ -1,31 +1,40 @@
-const hostInput = document.getElementById('host-input');
-const portInput = document.getElementById('port-input');
-const connectBtn = document.getElementById('connect-btn');
-const disconnectBtn = document.getElementById('disconnect-btn');
-const statusBadge = document.getElementById('connection-status');
-const telemetryFields = {
-  temperature_c: document.getElementById('metric-temp'),
-  speed_cm_s: document.getElementById('metric-speed'),
-  battery_percent: document.getElementById('metric-battery'),
-  power_percent: document.getElementById('metric-power'),
-  steering_deg: document.getElementById('metric-steering'),
-};
-const commandButtons = document.querySelectorAll('[data-command]');
-const logContainer = document.getElementById('log-container');
+if (window.__carDashboardInitialized) {
+  console.warn('IoT Car Control renderer script already loaded; skipping duplicate initialization.');
+} else {
+  window.__carDashboardInitialized = true;
+  (function () {
+    const carApi = window.carApi || null;
+    const hostInput = document.getElementById('host-input');
+    const portInput = document.getElementById('port-input');
+    const connectBtn = document.getElementById('connect-btn');
+    const disconnectBtn = document.getElementById('disconnect-btn');
+    const statusBadge = document.getElementById('connection-status');
+    const telemetryFields = {
+      temperature_c: document.getElementById('metric-temp'),
+      speed_cm_s: document.getElementById('metric-speed'),
+      battery_percent: document.getElementById('metric-battery'),
+      power_percent: document.getElementById('metric-power'),
+      steering_deg: document.getElementById('metric-steering'),
+    };
+    const commandButtons = document.querySelectorAll('[data-command]');
+    const logContainer = document.getElementById('log-container');
 
-const MAX_LOG_ENTRIES = 250;
-let isConnected = false;
-let suppressLogs = false;
-const currentTelemetry = {
-  temperature_c: null,
-  speed_cm_s: null,
-  battery_percent: null,
-  power_percent: null,
-  steering_deg: null,
-};
+    const MAX_LOG_ENTRIES = 250;
+    let isConnected = false;
+    let suppressLogs = false;
+    const currentTelemetry = {
+      temperature_c: null,
+      speed_cm_s: null,
+      battery_percent: null,
+      power_percent: null,
+      steering_deg: null,
+    };
 
 function applyDefaults() {
-  const { host, port } = window.carApi.defaults;
+  if (!carApi) {
+    return;
+  }
+  const { host, port } = carApi.defaults;
   hostInput.value = host;
   portInput.value = port;
 }
@@ -95,10 +104,10 @@ function makeLogEntry(level, message, details) {
   logContainer.scrollTop = logContainer.scrollHeight;
 }
 
-function handleCommandClick(event) {
+async function handleCommandClick(event) {
   const command = event.currentTarget.dataset.command;
   try {
-    window.carApi.sendCommand(command);
+    await carApi.sendCommand(command);
     makeLogEntry('command', `Sent ${command}`);
   } catch (error) {
     makeLogEntry('error', `Failed to send ${command}`, { message: error.message });
@@ -120,7 +129,7 @@ function registerListeners() {
     connectBtn.disabled = true;
 
     try {
-      await window.carApi.connect(host, port);
+      await carApi.connect(host, port);
       setStatus('connected', `Connected to ${host}:${port}`);
       isConnected = true;
       setControlsEnabled(true);
@@ -134,9 +143,14 @@ function registerListeners() {
     }
   });
 
-  disconnectBtn.addEventListener('click', () => {
-    window.carApi.disconnect();
-    makeLogEntry('info', 'Disconnect requested by user');
+  disconnectBtn.addEventListener('click', async () => {
+    try {
+      await carApi.disconnect();
+    } catch (error) {
+      makeLogEntry('error', 'Failed to disconnect cleanly', { message: error.message });
+    } finally {
+      makeLogEntry('info', 'Disconnect requested by user');
+    }
   });
 
   commandButtons.forEach((btn) => btn.addEventListener('click', handleCommandClick));
@@ -157,7 +171,7 @@ function registerListeners() {
     [' ', 'STOP'],
   ]);
 
-  document.addEventListener('keydown', (event) => {
+  document.addEventListener('keydown', async (event) => {
     if (!isConnected || event.repeat) {
       return;
     }
@@ -165,7 +179,7 @@ function registerListeners() {
     if (command) {
       event.preventDefault();
       try {
-        window.carApi.sendCommand(command);
+        await carApi.sendCommand(command);
         makeLogEntry('command', `Sent ${command} (keyboard)`);
       } catch (error) {
         makeLogEntry('error', `Failed to send ${command}`, { message: error.message });
@@ -173,14 +187,14 @@ function registerListeners() {
     }
   });
 
-  window.carApi.on('connected', ({ host, port }) => {
+  carApi.on('connected', ({ host, port }) => {
     isConnected = true;
     setControlsEnabled(true);
     setStatus('connected', `Connected to ${host}:${port}`);
     makeLogEntry('info', 'Connected', { host, port });
   });
 
-  window.carApi.on('disconnected', () => {
+  carApi.on('disconnected', () => {
     isConnected = false;
     setControlsEnabled(false);
     connectBtn.disabled = false;
@@ -190,11 +204,11 @@ function registerListeners() {
     setStatus('idle', 'Disconnected');
   });
 
-  window.carApi.on('telemetry', (payload) => {
+  carApi.on('telemetry', (payload) => {
     updateTelemetry(payload);
   });
 
-  window.carApi.on('ack', (payload) => {
+  carApi.on('ack', (payload) => {
     updateTelemetry(payload);
     makeLogEntry('ack', `Command ${payload.command} acknowledged`, {
       status: payload.status,
@@ -203,12 +217,19 @@ function registerListeners() {
     });
   });
 
-  window.carApi.on('error', (error) => {
-    setStatus('error', error.message || 'Socket error');
-    makeLogEntry('error', 'Socket error', { message: error.message });
+  carApi.on('command-error', (payload = {}) => {
+    makeLogEntry('warn', `Command ${payload.command || 'unknown'} rejected`, {
+      message: payload.message,
+    });
   });
 
-  window.carApi.on('message', (payload) => {
+  carApi.on('error', (error) => {
+    const message = error?.message || 'Socket error';
+    setStatus('error', message);
+    makeLogEntry('error', 'Socket error', { message });
+  });
+
+  carApi.on('message', (payload) => {
     if (payload.type === 'raw') {
       makeLogEntry('warn', 'Non-JSON payload', { raw: payload.raw });
     }
@@ -216,12 +237,21 @@ function registerListeners() {
 
   window.addEventListener('beforeunload', () => {
     suppressLogs = true;
-    window.carApi.disconnect();
+    carApi?.disconnect();
   });
 }
 
-applyDefaults();
-setControlsEnabled(false);
-registerListeners();
-setStatus('idle', 'Idle');
-makeLogEntry('info', 'Ready. Configure the IP address of your Raspberry Pi and press Connect.');
+if (!carApi) {
+  setStatus('error', 'Preload bridge unavailable');
+  connectBtn.disabled = true;
+  disconnectBtn.disabled = true;
+  makeLogEntry('error', 'Failed to load preload script. Restart the app.');
+} else {
+  applyDefaults();
+  setControlsEnabled(false);
+  registerListeners();
+  setStatus('idle', 'Idle');
+  makeLogEntry('info', 'Ready. Configure the IP address of your Raspberry Pi and press Connect.');
+}
+  })();
+}

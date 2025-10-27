@@ -71,3 +71,4 @@ Unknown payloads are echoed to the log for inspection, which helps diagnose firm
 - If the **Connect** button fails immediately, verify that the Pi is reachable (e.g., `ping <pi-ip>`).
 - Ensure the Pi's firewall allows inbound TCP connections on the chosen port.
 - If telemetry stops updating, the UI will show a disconnect warning; reconnect once the Pi server is running again.
+- Electron may show a content-security-policy reminder in the console. The renderer already avoids `eval`, but you can silence the warning by adding a strict `Content-Security-Policy` meta tag in `public/index.html` (for example, `default-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline'`) if you prefer hardened logs.
