@@ -7,7 +7,7 @@ from robot_hat import ADC
 from picarx import Picarx
 
 
-HOST = "192.168.125.22" # IP address of your Raspberry PI
+HOST = "192.168.0.9" # IP address of your Raspberry PI
 PORT = 65432          # Port to listen on (non-privileged ports are > 1023)
 
 buf_size = 1024
