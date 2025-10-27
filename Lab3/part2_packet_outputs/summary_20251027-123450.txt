@@ -1,0 +1,6 @@
+Lab 3 Part 2 packet inspection run at 20251027-123450
+Outputs stored in /home/desi/CS437/Lab3/part2_packet_outputs
+Capture file: /home/desi/CS437/Lab3/part2_packet_outputs/capture_20251027-123450.pcapng
+Analysis notes: /home/desi/CS437/Lab3/part2_packet_outputs/analysis_20251027-123450.txt
+Run complete. Log available at /home/desi/CS437/Lab3/part2_packet_outputs/packet_inspection_20251027-123450.log
+Note: if you want to run capture without sudo, log out/in after the wireshark group change.

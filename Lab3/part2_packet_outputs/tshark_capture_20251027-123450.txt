@@ -1,0 +1,6 @@
+Running as user "root" and group "root". This could be dangerous.
+Capturing on 'wlan0'
+ ** (tshark:9224) 12:34:52.745332 [Main MESSAGE] -- Capture started.
+ ** (tshark:9224) 12:34:52.745845 [Main MESSAGE] -- File: "/tmp/packet_capture_20251027-123450.pcapng"
+tshark: 
+404 packets captured

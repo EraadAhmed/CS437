@@ -1,0 +1,5 @@
+Allowed rules (edit the ALLOWED_RULES array in the script):
+- ssh
+- 1883/tcp
+- 8883/tcp
+- 5000/tcp

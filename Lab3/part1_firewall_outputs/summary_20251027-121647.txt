@@ -1,0 +1,5 @@
+Lab 3 Step 1 firewall setup run at 20251027-121647
+Outputs stored in /home/desi/CS437/Lab3/step1_firewall_outputs
+Log file: /home/desi/CS437/Lab3/step1_firewall_outputs/ufw_setup_20251027-121647.log
+Allowed rules record: /home/desi/CS437/Lab3/step1_firewall_outputs/allowed_rules_20251027-121647.txt
+Run complete. Review the log and summary files for documentation.

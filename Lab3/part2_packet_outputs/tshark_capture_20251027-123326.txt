@@ -1,0 +1,6 @@
+Running as user "root" and group "root". This could be dangerous.
+Capturing on 'wlan0'
+tshark: The file to which the capture would be saved ("/home/desi/CS437/Lab3/part2_packet_outputs/capture_20251027-123326.pcapng") could not be opened: Permission denied.
+
+tshark: 
+0 packets captured

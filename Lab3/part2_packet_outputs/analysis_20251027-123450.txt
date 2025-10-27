@@ -1,0 +1,47 @@
+Capture: /home/desi/CS437/Lab3/part2_packet_outputs/capture_20251027-123450.pcapng
+Interface: wlan0
+Ping target: 8.8.8.8
+HTTP URL: https://example.com
+
+Protocol hierarchy (tshark -z io,phs):
+
+===================================================================
+Protocol Hierarchy Statistics
+Filter: 
+
+eth                                      frames:404 bytes:118718
+  ip                                     frames:397 bytes:118123
+    tcp                                  frames:368 bytes:114200
+      tls                                frames:81 bytes:48539
+        tcp.segments                     frames:7 bytes:6560
+          tls                            frames:1 bytes:1362
+      tcp.segments                       frames:4 bytes:6032
+      ssh                                frames:99 bytes:19710
+    icmp                                 frames:12 bytes:1176
+    udp                                  frames:17 bytes:2747
+      dns                                frames:16 bytes:2532
+      mndp                               frames:1 bytes:215
+  arp                                    frames:6 bytes:360
+  ipv6                                   frames:1 bytes:235
+    udp                                  frames:1 bytes:235
+      mndp                               frames:1 bytes:235
+===================================================================
+
+Endpoint summary (tshark -z endpoints,ip):
+================================================================================
+IPv4 Endpoints
+Filter:<No Filter>
+                       |  Packets  | |  Bytes  | | Tx Packets | | Tx Bytes | | Rx Packets | | Rx Bytes |
+192.168.125.22               396        117908        193           57598         203           60310   
+192.168.125.5                170         24628         98           12336          72           12292   
+140.82.112.22                 69         28308         35           16381          34           11927   
+52.182.143.208                28         15722         11            5890          17            9832   
+23.215.0.136                  27          6198         13            4500          14            1698   
+140.82.112.21                 27         11860         12            7235          15            4625   
+13.89.179.9                   25         13581         10            5824          15            7757   
+13.69.116.109                 22         13903         10            5730          12            8173   
+8.8.4.4                       16          2532          8            1826           8             706   
+8.8.8.8                       12          1176          6             588           6             588   
+192.168.125.1                  1           215          1             215           0               0   
+255.255.255.255                1           215          0               0           1             215   
+================================================================================

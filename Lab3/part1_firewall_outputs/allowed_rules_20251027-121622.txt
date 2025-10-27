@@ -1,0 +1,1 @@
+Allowed rules (edit the ALLOWED_RULES array in the script):
