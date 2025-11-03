@@ -1,0 +1,211 @@
+===== System context =====
+===== Date =====
++ date --iso-8601=seconds
+2025-10-27T12:34:50-05:00
+
+===== Hostname =====
++ hostnamectl
+ Static hostname: raspberrypi
+       Icon name: computer
+      Machine ID: 90850ae90b784f80acf88b9c16d3884c
+         Boot ID: 4ad58ddee4304a3b827d728bf7f4d644
+Operating System: Debian GNU/Linux 12 (bookworm)
+          Kernel: Linux 6.12.47+rpt-rpi-2712
+    Architecture: arm64
+
+===== Kernel =====
++ uname -a
+Linux raspberrypi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1~bookworm (2025-09-16) aarch64 GNU/Linux
+
+===== Distribution =====
++ lsb_release -a
+Distributor ID:	Debian
+Description:	Debian GNU/Linux 12 (bookworm)
+Release:	12
+Codename:	bookworm
+
+===== Network interfaces =====
++ ip -brief addr
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+eth0             DOWN           
+wlan0            UP             192.168.125.22/24 fe80::286d:90db:6c44:9811/64 
+
+===== Install Wireshark toolchain =====
+===== Add wireshark setuid preseed =====
++ bash -c echo 'wireshark-common wireshark-common/install-setuid boolean true' | sudo debconf-set-selections
+
+===== Install wireshark packages =====
++ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y wireshark tshark
+Reading package lists...
+Building dependency tree...
+Reading state information...
+wireshark is already the newest version (4.0.17-0+deb12u1).
+tshark is already the newest version (4.0.17-0+deb12u1).
+The following packages were automatically installed and are no longer required:
+  libbasicusageenvironment1 libgroupsock8 liblivemedia77
+  linux-headers-6.12.25+rpt-common-rpi linux-headers-6.12.25+rpt-rpi-2712
+  linux-headers-6.12.25+rpt-rpi-v8 linux-image-6.12.25+rpt-rpi-2712
+  linux-image-6.12.25+rpt-rpi-v8 linux-kbuild-6.12.25+rpt python3-v4l2
+Use 'sudo apt autoremove' to remove them.
+0 upgraded, 0 newly installed, 0 to remove and 43 not upgraded.
+
+===== Reconfigure dumpcap permissions =====
++ sudo dpkg-reconfigure -f noninteractive wireshark-common
+
+===== Ensure dumpcap executable =====
++ sudo chmod +x /usr/bin/dumpcap
+
+===== Add current user to wireshark group =====
++ sudo usermod -aG wireshark desi
+
+===== Available capture interfaces =====
+===== tshark interface list =====
++ sudo tshark -D
+1. wlan0
+2. any
+3. lo (Loopback)
+4. eth0
+5. bluetooth0
+6. bluetooth-monitor
+7. nflog
+8. nfqueue
+9. dbus-system
+10. dbus-session
+11. ciscodump (Cisco remote capture)
+12. dpauxmon (DisplayPort AUX channel monitor capture)
+13. randpkt (Random packet generator)
+14. sdjournal (systemd Journal Export)
+15. sshdump (SSH remote capture)
+16. udpdump (UDP Listener remote capture)
+17. wifidump (Wi-Fi remote capture)
+
+===== Packet capture session =====
+Capturing on interface wlan0 for 20 seconds
+PCAP destination: /home/desi/CS437/Lab3/part2_packet_outputs/capture_20251027-123450.pcapng
+tshark PID 9219
+===== Ping 8.8.8.8 =====
++ ping -c 6 8.8.8.8
+PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
+64 bytes from 8.8.8.8: icmp_seq=1 ttl=119 time=8.28 ms
+64 bytes from 8.8.8.8: icmp_seq=2 ttl=119 time=8.80 ms
+64 bytes from 8.8.8.8: icmp_seq=3 ttl=119 time=8.68 ms
+64 bytes from 8.8.8.8: icmp_seq=4 ttl=119 time=9.06 ms
+64 bytes from 8.8.8.8: icmp_seq=5 ttl=119 time=8.40 ms
+64 bytes from 8.8.8.8: icmp_seq=6 ttl=119 time=8.64 ms
+
+--- 8.8.8.8 ping statistics ---
+6 packets transmitted, 6 received, 0% packet loss, time 5008ms
+rtt min/avg/max/mdev = 8.276/8.642/9.055/0.254 ms
+
+===== HTTP HEAD https://example.com =====
++ curl -fsSI --max-time 10 https://example.com
+HTTP/2 200 
+content-type: text/html
+etag: "bc2473a18e003bdb249eba5ce893033f:1760028122.592274"
+last-modified: Thu, 09 Oct 2025 16:42:02 GMT
+cache-control: max-age=86000
+date: Mon, 27 Oct 2025 17:35:00 GMT
+alt-svc: h3=":443"; ma=93600
+
+
+tshark capture output
+Running as user "root" and group "root". This could be dangerous.
+Capturing on 'wlan0'
+ ** (tshark:9224) 12:34:52.745332 [Main MESSAGE] -- Capture started.
+ ** (tshark:9224) 12:34:52.745845 [Main MESSAGE] -- File: "/tmp/packet_capture_20251027-123450.pcapng"
+tshark: 
+404 packets captured
+===== Capture analysis =====
+===== capinfos summary =====
++ capinfos /home/desi/CS437/Lab3/part2_packet_outputs/capture_20251027-123450.pcapng
+File name:           /home/desi/CS437/Lab3/part2_packet_outputs/capture_20251027-123450.pcapng
+File type:           Wireshark/... - pcapng
+File encapsulation:  Ethernet
+File timestamp precision:  nanoseconds (9)
+Packet size limit:   file hdr: (not set)
+Number of packets:   404
+File size:           132 kB
+Data size:           118 kB
+Capture duration:    18.276217448 seconds
+First packet time:   2025-10-27 12:34:52.814037292
+Last packet time:    2025-10-27 12:35:11.090254740
+Data byte rate:      6,495 bytes/s
+Data bit rate:       51 kbps
+Average packet size: 293.86 bytes
+Average packet rate: 22 packets/s
+SHA256:              9e55f1cb36cb3294cce3b0c8532455a3c35e2465e9701b44ea6bdce1997dcc67
+RIPEMD160:           e620c360796520a2264d67f07f38b632be0369a1
+SHA1:                a3bd19e6cd11f6453257e6c428f7f07a2c695c0b
+Strict time order:   True
+Capture oper-sys:    Linux 6.12.47+rpt-rpi-2712
+Capture application: Dumpcap (Wireshark) 4.0.17 (Git v4.0.17 packaged as 4.0.17-0+deb12u1)
+Number of interfaces in file: 1
+Interface #0 info:
+                     Name = wlan0
+                     Encapsulation = Ethernet (1 - ether)
+                     Capture length = 262144
+                     Time precision = nanoseconds (9)
+                     Time ticks per second = 1000000000
+                     Time resolution = 0x09
+                     Operating system = Linux 6.12.47+rpt-rpi-2712
+                     Number of stat entries = 1
+                     Number of packets = 404
+
+===== Top talkers =====
++ sudo tshark -r /home/desi/CS437/Lab3/part2_packet_outputs/capture_20251027-123450.pcapng -q -z endpoints,ip
+================================================================================
+IPv4 Endpoints
+Filter:<No Filter>
+                       |  Packets  | |  Bytes  | | Tx Packets | | Tx Bytes | | Rx Packets | | Rx Bytes |
+192.168.125.22               396        117908        193           57598         203           60310   
+192.168.125.5                170         24628         98           12336          72           12292   
+140.82.112.22                 69         28308         35           16381          34           11927   
+52.182.143.208                28         15722         11            5890          17            9832   
+23.215.0.136                  27          6198         13            4500          14            1698   
+140.82.112.21                 27         11860         12            7235          15            4625   
+13.89.179.9                   25         13581         10            5824          15            7757   
+13.69.116.109                 22         13903         10            5730          12            8173   
+8.8.4.4                       16          2532          8            1826           8             706   
+8.8.8.8                       12          1176          6             588           6             588   
+192.168.125.1                  1           215          1             215           0               0   
+255.255.255.255                1           215          0               0           1             215   
+================================================================================
+
+===== Protocol hierarchy =====
++ sudo tshark -r /home/desi/CS437/Lab3/part2_packet_outputs/capture_20251027-123450.pcapng -q -z io,phs
+
+===================================================================
+Protocol Hierarchy Statistics
+Filter: 
+
+eth                                      frames:404 bytes:118718
+  ip                                     frames:397 bytes:118123
+    tcp                                  frames:368 bytes:114200
+      tls                                frames:81 bytes:48539
+        tcp.segments                     frames:7 bytes:6560
+          tls                            frames:1 bytes:1362
+      tcp.segments                       frames:4 bytes:6032
+      ssh                                frames:99 bytes:19710
+    icmp                                 frames:12 bytes:1176
+    udp                                  frames:17 bytes:2747
+      dns                                frames:16 bytes:2532
+      mndp                               frames:1 bytes:215
+  arp                                    frames:6 bytes:360
+  ipv6                                   frames:1 bytes:235
+    udp                                  frames:1 bytes:235
+      mndp                               frames:1 bytes:235
+===================================================================
+
+===== First 10 packets =====
++ sudo tshark -r /home/desi/CS437/Lab3/part2_packet_outputs/capture_20251027-123450.pcapng -c 10
+    1 0.000000000 13.69.116.109 → 192.168.125.22 TLSv1.3 1514 Server Hello
+    2 0.000150328 13.69.116.109 → 192.168.125.22 TCP 1514 443 → 33140 [ACK] Seq=1449 Ack=1 Win=16382 Len=1448 TSval=2119832827 TSecr=2145703019 [TCP segment of a reassembled PDU]
+    3 0.000173031 192.168.125.22 → 13.69.116.109 TCP 66 33140 → 443 [ACK] Seq=1 Ack=2897 Win=548 Len=0 TSval=2145703127 TSecr=2119832827
+    4 0.000177790 13.69.116.109 → 192.168.125.22 TCP 213 [TCP Previous segment not captured] 443 → 33140 [PSH, ACK] Seq=4345 Ack=1 Win=16382 Len=147 TSval=2119832827 TSecr=2145703019 [TCP segment of a reassembled PDU]
+    5 0.000182586 192.168.125.22 → 13.69.116.109 TCP 78 [TCP Window Update] 33140 → 443 [ACK] Seq=1 Ack=2897 Win=570 Len=0 TSval=2145703127 TSecr=2119832827 SLE=4345 SRE=4492
+    6 0.000183642 13.69.116.109 → 192.168.125.22 TCP 1514 [TCP Out-Of-Order] 443 → 33140 [ACK] Seq=2897 Ack=1 Win=16382 Len=1448 TSval=2119832827 TSecr=2145703019
+    7 0.000188215 192.168.125.22 → 13.69.116.109 TCP 66 33140 → 443 [ACK] Seq=1 Ack=4492 Win=593 Len=0 TSval=2145703127 TSecr=2119832827
+    8 0.006262864 192.168.125.22 → 13.69.116.109 TLSv1.3 1494 Application Data
+    9 0.006270623 192.168.125.22 → 13.69.116.109 TCP 1494 33140 → 443 [PSH, ACK] Seq=1429 Ack=4492 Win=593 Len=1428 TSval=2145703133 TSecr=2119832827 [TCP segment of a reassembled PDU]
+   10 0.006276567 192.168.125.22 → 13.69.116.109 TCP 1494 33140 → 443 [ACK] Seq=2857 Ack=4492 Win=593 Len=1428 TSval=2145703133 TSecr=2119832827 [TCP segment of a reassembled PDU]
+

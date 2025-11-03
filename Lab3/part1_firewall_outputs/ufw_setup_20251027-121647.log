@@ -1,0 +1,362 @@
+===== System context =====
+===== Date =====
++ date --iso-8601=seconds
+2025-10-27T12:16:47-05:00
+
+===== Hostname =====
++ hostnamectl
+ Static hostname: raspberrypi
+       Icon name: computer
+      Machine ID: 90850ae90b784f80acf88b9c16d3884c
+         Boot ID: 4ad58ddee4304a3b827d728bf7f4d644
+Operating System: Debian GNU/Linux 12 (bookworm)
+          Kernel: Linux 6.12.47+rpt-rpi-2712
+    Architecture: arm64
+
+===== Kernel =====
++ uname -a
+Linux raspberrypi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1~bookworm (2025-09-16) aarch64 GNU/Linux
+
+===== Distribution =====
++ lsb_release -a
+Distributor ID:	Debian
+Description:	Debian GNU/Linux 12 (bookworm)
+Release:	12
+Codename:	bookworm
+
+===== Network interfaces =====
++ ip -brief addr
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+eth0             DOWN           
+wlan0            UP             192.168.125.22/24 fe80::286d:90db:6c44:9811/64 
+
+===== Install and enable UFW =====
+===== Package index refresh =====
++ sudo apt-get update
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian-security bookworm-security InRelease
+Hit:3 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:4 http://archive.raspberrypi.com/debian bookworm InRelease
+Reading package lists...
+
+===== Install ufw =====
++ sudo apt-get install -y ufw
+Reading package lists...
+Building dependency tree...
+Reading state information...
+ufw is already the newest version (0.36.2-1).
+The following packages were automatically installed and are no longer required:
+  libbasicusageenvironment1 libgroupsock8 liblivemedia77
+  linux-headers-6.12.25+rpt-common-rpi linux-headers-6.12.25+rpt-rpi-2712
+  linux-headers-6.12.25+rpt-rpi-v8 linux-image-6.12.25+rpt-rpi-2712
+  linux-image-6.12.25+rpt-rpi-v8 linux-kbuild-6.12.25+rpt python3-v4l2
+Use 'sudo apt autoremove' to remove them.
+0 upgraded, 0 newly installed, 0 to remove and 43 not upgraded.
+
+===== Pre-change firewall state =====
+===== Current UFW status =====
++ sudo ufw status verbose
+Status: inactive
+
+===== iptables filter table =====
++ sudo iptables -L -n -v
+Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain FORWARD (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+===== nftables ruleset =====
++ sudo nft list ruleset
+
+===== Configure default policies =====
+===== Allow outgoing by default =====
++ sudo ufw default allow outgoing
+Default outgoing policy changed to 'allow'
+(be sure to update your rules accordingly)
+
+===== Deny incoming by default =====
++ sudo ufw default deny incoming
+Default incoming policy changed to 'deny'
+(be sure to update your rules accordingly)
+
+===== Apply allow rules =====
+===== Allow ssh =====
++ sudo ufw allow ssh
+Rules updated
+Rules updated (v6)
+
+===== Allow 1883/tcp =====
++ sudo ufw allow 1883/tcp
+Rules updated
+Rules updated (v6)
+
+===== Allow 8883/tcp =====
++ sudo ufw allow 8883/tcp
+Rules updated
+Rules updated (v6)
+
+===== Allow 5000/tcp =====
++ sudo ufw allow 5000/tcp
+Rules updated
+Rules updated (v6)
+
+===== Enable firewall =====
+===== Enable UFW =====
++ sudo ufw --force enable
+Firewall is active and enabled on system startup
+
+===== Post-change firewall state =====
+===== UFW status =====
++ sudo ufw status numbered
+Status: active
+
+     To                         Action      From
+     --                         ------      ----
+[ 1] 22/tcp                     ALLOW IN    Anywhere                  
+[ 2] 1883/tcp                   ALLOW IN    Anywhere                  
+[ 3] 8883/tcp                   ALLOW IN    Anywhere                  
+[ 4] 5000/tcp                   ALLOW IN    Anywhere                  
+[ 5] 22/tcp (v6)                ALLOW IN    Anywhere (v6)             
+[ 6] 1883/tcp (v6)              ALLOW IN    Anywhere (v6)             
+[ 7] 8883/tcp (v6)              ALLOW IN    Anywhere (v6)             
+[ 8] 5000/tcp (v6)              ALLOW IN    Anywhere (v6)             
+
+
+===== UFW app list =====
++ sudo ufw app list
+Available applications:
+  AIM
+  Bonjour
+  CIFS
+  CUPS
+  DNS
+  Deluge
+  IMAP
+  IMAPS
+  IPP
+  KTorrent
+  Kerberos Admin
+  Kerberos Full
+  Kerberos KDC
+  Kerberos Password
+  LDAP
+  LDAPS
+  LPD
+  MSN
+  MSN SSL
+  Mail submission
+  NFS
+  OpenSSH
+  POP3
+  POP3S
+  PeopleNearby
+  SMTP
+  SSH
+  Socks
+  Telnet
+  Transmission
+  Transparent Proxy
+  VNC
+  WWW
+  WWW Cache
+  WWW Full
+  WWW Secure
+  XMPP
+  Yahoo
+  qBittorrent
+  svnserve
+
+===== iptables after changes =====
++ sudo iptables -L -n -v
+Chain INPUT (policy DROP 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+   39  4833 ufw-before-logging-input  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+   39  4833 ufw-before-input  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+   13  1172 ufw-after-input  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+   13  1172 ufw-after-logging-input  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+   13  1172 ufw-reject-input  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+   13  1172 ufw-track-input  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+
+Chain FORWARD (policy DROP 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 ufw-before-logging-forward  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+    0     0 ufw-before-forward  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+    0     0 ufw-after-forward  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+    0     0 ufw-after-logging-forward  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+    0     0 ufw-reject-forward  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+    0     0 ufw-track-forward  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+   34  5473 ufw-before-logging-output  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+   34  5473 ufw-before-output  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+   11  1168 ufw-after-output  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+   11  1168 ufw-after-logging-output  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+   11  1168 ufw-reject-output  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+   11  1168 ufw-track-output  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+
+Chain ufw-after-forward (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-after-input (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 ufw-skip-to-policy-input  17   --  *      *       0.0.0.0/0            0.0.0.0/0            udp dpt:137
+    0     0 ufw-skip-to-policy-input  17   --  *      *       0.0.0.0/0            0.0.0.0/0            udp dpt:138
+    0     0 ufw-skip-to-policy-input  6    --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:139
+    0     0 ufw-skip-to-policy-input  6    --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:445
+    0     0 ufw-skip-to-policy-input  17   --  *      *       0.0.0.0/0            0.0.0.0/0            udp dpt:67
+    0     0 ufw-skip-to-policy-input  17   --  *      *       0.0.0.0/0            0.0.0.0/0            udp dpt:68
+    0     0 ufw-skip-to-policy-input  0    --  *      *       0.0.0.0/0            0.0.0.0/0            ADDRTYPE match dst-type BROADCAST
+
+Chain ufw-after-logging-forward (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 LOG        0    --  *      *       0.0.0.0/0            0.0.0.0/0            limit: avg 3/min burst 10 LOG flags 0 level 4 prefix "[UFW BLOCK] "
+
+Chain ufw-after-logging-input (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 LOG        0    --  *      *       0.0.0.0/0            0.0.0.0/0            limit: avg 3/min burst 10 LOG flags 0 level 4 prefix "[UFW BLOCK] "
+
+Chain ufw-after-logging-output (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-after-output (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-before-forward (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 ACCEPT     0    --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate RELATED,ESTABLISHED
+    0     0 ACCEPT     1    --  *      *       0.0.0.0/0            0.0.0.0/0            icmptype 3
+    0     0 ACCEPT     1    --  *      *       0.0.0.0/0            0.0.0.0/0            icmptype 11
+    0     0 ACCEPT     1    --  *      *       0.0.0.0/0            0.0.0.0/0            icmptype 12
+    0     0 ACCEPT     1    --  *      *       0.0.0.0/0            0.0.0.0/0            icmptype 8
+    0     0 ufw-user-forward  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+
+Chain ufw-before-input (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+   15  2393 ACCEPT     0    --  lo     *       0.0.0.0/0            0.0.0.0/0           
+   11  1268 ACCEPT     0    --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate RELATED,ESTABLISHED
+    0     0 ufw-logging-deny  0    --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate INVALID
+    0     0 DROP       0    --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate INVALID
+    0     0 ACCEPT     1    --  *      *       0.0.0.0/0            0.0.0.0/0            icmptype 3
+    0     0 ACCEPT     1    --  *      *       0.0.0.0/0            0.0.0.0/0            icmptype 11
+    0     0 ACCEPT     1    --  *      *       0.0.0.0/0            0.0.0.0/0            icmptype 12
+    0     0 ACCEPT     1    --  *      *       0.0.0.0/0            0.0.0.0/0            icmptype 8
+    0     0 ACCEPT     17   --  *      *       0.0.0.0/0            0.0.0.0/0            udp spt:67 dpt:68
+    0     0 ufw-not-local  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+    0     0 ACCEPT     17   --  *      *       0.0.0.0/0            224.0.0.251          udp dpt:5353
+    0     0 ACCEPT     17   --  *      *       0.0.0.0/0            239.255.255.250      udp dpt:1900
+    0     0 ufw-user-input  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+
+Chain ufw-before-logging-forward (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-before-logging-input (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-before-logging-output (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-before-output (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+   15  2393 ACCEPT     0    --  *      lo      0.0.0.0/0            0.0.0.0/0           
+    8  1912 ACCEPT     0    --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate RELATED,ESTABLISHED
+    0     0 ufw-user-output  0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+
+Chain ufw-logging-allow (0 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 LOG        0    --  *      *       0.0.0.0/0            0.0.0.0/0            limit: avg 3/min burst 10 LOG flags 0 level 4 prefix "[UFW ALLOW] "
+
+Chain ufw-logging-deny (2 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 RETURN     0    --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate INVALID limit: avg 3/min burst 10
+    0     0 LOG        0    --  *      *       0.0.0.0/0            0.0.0.0/0            limit: avg 3/min burst 10 LOG flags 0 level 4 prefix "[UFW BLOCK] "
+
+Chain ufw-not-local (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 RETURN     0    --  *      *       0.0.0.0/0            0.0.0.0/0            ADDRTYPE match dst-type LOCAL
+    0     0 RETURN     0    --  *      *       0.0.0.0/0            0.0.0.0/0            ADDRTYPE match dst-type MULTICAST
+    0     0 RETURN     0    --  *      *       0.0.0.0/0            0.0.0.0/0            ADDRTYPE match dst-type BROADCAST
+    0     0 ufw-logging-deny  0    --  *      *       0.0.0.0/0            0.0.0.0/0            limit: avg 3/min burst 10
+    0     0 DROP       0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+
+Chain ufw-reject-forward (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-reject-input (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-reject-output (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-skip-to-policy-forward (0 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 DROP       0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+
+Chain ufw-skip-to-policy-input (7 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 DROP       0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+
+Chain ufw-skip-to-policy-output (0 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 ACCEPT     0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+
+Chain ufw-track-forward (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-track-input (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-track-output (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 ACCEPT     6    --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate NEW
+    0     0 ACCEPT     17   --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate NEW
+
+Chain ufw-user-forward (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-user-input (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 ACCEPT     6    --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:22
+    0     0 ACCEPT     6    --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:1883
+    0     0 ACCEPT     6    --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8883
+    0     0 ACCEPT     6    --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:5000
+
+Chain ufw-user-limit (0 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 LOG        0    --  *      *       0.0.0.0/0            0.0.0.0/0            limit: avg 3/min burst 5 LOG flags 0 level 4 prefix "[UFW LIMIT BLOCK] "
+    0     0 REJECT     0    --  *      *       0.0.0.0/0            0.0.0.0/0            reject-with icmp-port-unreachable
+
+Chain ufw-user-limit-accept (0 references)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 ACCEPT     0    --  *      *       0.0.0.0/0            0.0.0.0/0           
+
+Chain ufw-user-logging-forward (0 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-user-logging-input (0 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-user-logging-output (0 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain ufw-user-output (1 references)
+ pkts bytes target     prot opt in     out     source               destination         
+
+===== Verification checks =====
+===== Listening sockets =====
++ sudo ss -tulpen
+Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                                                                                                  
+udp   UNCONN 0      0            0.0.0.0:39032      0.0.0.0:*    users:(("avahi-daemon",pid=668,fd=14))                                                                                  
+udp   UNCONN 0      0            0.0.0.0:5353       0.0.0.0:*    users:(("avahi-daemon",pid=668,fd=12))                                                                                  
+udp   UNCONN 0      0                  *:33289            *:*    users:(("avahi-daemon",pid=668,fd=15))                                                                                  
+udp   UNCONN 0      0                  *:5353             *:*    users:(("avahi-daemon",pid=668,fd=13))                                                                                  
+tcp   LISTEN 0      128          0.0.0.0:22         0.0.0.0:*    users:(("sshd",pid=855,fd=3)) ino:7601 sk:1 cgroup:/system.slice/ssh.service <->                                        
+tcp   LISTEN 0      128        127.0.0.1:631        0.0.0.0:*    users:(("cupsd",pid=1909,fd=7)) ino:9972 sk:2 cgroup:/system.slice/cups.service <->                                     
+tcp   LISTEN 0      1024       127.0.0.1:35551      0.0.0.0:*    users:(("code-7d842fb85a",pid=1982,fd=9)) uid:1000 ino:11980 sk:3 cgroup:/user.slice/user-1000.slice/session-5.scope <->
+tcp   LISTEN 0      128            [::1]:631           [::]:*    users:(("cupsd",pid=1909,fd=6)) ino:9971 sk:4 cgroup:/system.slice/cups.service v6only:1 <->                            
+tcp   LISTEN 0      128             [::]:22            [::]:*    users:(("sshd",pid=855,fd=4)) ino:7603 sk:5 cgroup:/system.slice/ssh.service v6only:1 <->                               
+

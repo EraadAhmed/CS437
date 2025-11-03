@@ -1,0 +1,134 @@
+===== System context =====
+===== Date =====
++ date --iso-8601=seconds
+2025-10-27T12:16:22-05:00
+
+===== Hostname =====
++ hostnamectl
+ Static hostname: raspberrypi
+       Icon name: computer
+      Machine ID: 90850ae90b784f80acf88b9c16d3884c
+         Boot ID: 4ad58ddee4304a3b827d728bf7f4d644
+Operating System: Debian GNU/Linux 12 (bookworm)
+          Kernel: Linux 6.12.47+rpt-rpi-2712
+    Architecture: arm64
+
+===== Kernel =====
++ uname -a
+Linux raspberrypi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1~bookworm (2025-09-16) aarch64 GNU/Linux
+
+===== Distribution =====
++ lsb_release -a
+Distributor ID:	Debian
+Description:	Debian GNU/Linux 12 (bookworm)
+Release:	12
+Codename:	bookworm
+
+===== Network interfaces =====
++ ip -brief addr
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+eth0             DOWN           
+wlan0            UP             192.168.125.22/24 fe80::286d:90db:6c44:9811/64 
+
+===== Install and enable UFW =====
+===== Package index refresh =====
++ sudo apt-get update
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Get:2 http://deb.debian.org/debian-security bookworm-security InRelease [48.0 kB]
+Get:3 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+Get:4 http://deb.debian.org/debian-security bookworm-security/main armhf Packages [264 kB]
+Get:5 http://deb.debian.org/debian-security bookworm-security/main arm64 Packages [279 kB]
+Get:6 http://archive.raspberrypi.com/debian bookworm InRelease [54.9 kB]
+Get:7 http://deb.debian.org/debian-security bookworm-security/main Translation-en [171 kB]
+Get:8 http://archive.raspberrypi.com/debian bookworm/main armhf Packages [560 kB]
+Get:9 http://archive.raspberrypi.com/debian bookworm/main arm64 Packages [559 kB]
+Fetched 1,888 kB in 1s (1,608 kB/s)
+Reading package lists...
+
+===== Install ufw =====
++ sudo apt-get install -y ufw
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages were automatically installed and are no longer required:
+  libbasicusageenvironment1 libgroupsock8 liblivemedia77
+  linux-headers-6.12.25+rpt-common-rpi linux-headers-6.12.25+rpt-rpi-2712
+  linux-headers-6.12.25+rpt-rpi-v8 linux-image-6.12.25+rpt-rpi-2712
+  linux-image-6.12.25+rpt-rpi-v8 linux-kbuild-6.12.25+rpt python3-v4l2
+Use 'sudo apt autoremove' to remove them.
+The following additional packages will be installed:
+  iptables libip6tc2
+Suggested packages:
+  firewalld rsyslog
+The following NEW packages will be installed:
+  iptables libip6tc2 ufw
+0 upgraded, 3 newly installed, 0 to remove and 43 not upgraded.
+Need to get 538 kB of archives.
+After this operation, 9,607 kB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian bookworm/main arm64 libip6tc2 arm64 1.8.9-2 [18.7 kB]
+Get:2 http://deb.debian.org/debian bookworm/main arm64 iptables arm64 1.8.9-2 [352 kB]
+Get:3 http://deb.debian.org/debian bookworm/main arm64 ufw all 0.36.2-1 [168 kB]
+Preconfiguring packages ...
+Fetched 538 kB in 0s (5,193 kB/s)
+Selecting previously unselected package libip6tc2:arm64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 184804 files and directories currently installed.)
+Preparing to unpack .../libip6tc2_1.8.9-2_arm64.deb ...
+Unpacking libip6tc2:arm64 (1.8.9-2) ...
+Selecting previously unselected package iptables.
+Preparing to unpack .../iptables_1.8.9-2_arm64.deb ...
+Unpacking iptables (1.8.9-2) ...
+Selecting previously unselected package ufw.
+Preparing to unpack .../archives/ufw_0.36.2-1_all.deb ...
+Unpacking ufw (0.36.2-1) ...
+Setting up libip6tc2:arm64 (1.8.9-2) ...
+Setting up iptables (1.8.9-2) ...
+update-alternatives: using /usr/sbin/iptables-legacy to provide /usr/sbin/iptables (iptables) in auto mode
+update-alternatives: using /usr/sbin/ip6tables-legacy to provide /usr/sbin/ip6tables (ip6tables) in auto mode
+update-alternatives: using /usr/sbin/iptables-nft to provide /usr/sbin/iptables (iptables) in auto mode
+update-alternatives: using /usr/sbin/ip6tables-nft to provide /usr/sbin/ip6tables (ip6tables) in auto mode
+update-alternatives: using /usr/sbin/arptables-nft to provide /usr/sbin/arptables (arptables) in auto mode
+update-alternatives: using /usr/sbin/ebtables-nft to provide /usr/sbin/ebtables (ebtables) in auto mode
+Setting up ufw (0.36.2-1) ...
+
+Creating config file /etc/ufw/before.rules with new version
+
+Creating config file /etc/ufw/before6.rules with new version
+
+Creating config file /etc/ufw/after.rules with new version
+
+Creating config file /etc/ufw/after6.rules with new version
+Created symlink /etc/systemd/system/multi-user.target.wants/ufw.service -> /lib/systemd/system/ufw.service.
+Processing triggers for libc-bin (2.36-9+rpt2+deb12u12) ...
+Processing triggers for man-db (2.11.2-2) ...
+
+===== Pre-change firewall state =====
+===== Current UFW status =====
++ sudo ufw status verbose
+Status: inactive
+
+===== iptables filter table =====
++ sudo iptables -L -n -v
+Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain FORWARD (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+===== nftables ruleset =====
++ sudo nft list ruleset
+
+===== Configure default policies =====
+===== Allow outgoing by default =====
++ sudo ufw default allow outgoing
+Default outgoing policy changed to 'allow'
+(be sure to update your rules accordingly)
+
+===== Deny incoming by default =====
++ sudo ufw default deny incoming
+Default incoming policy changed to 'deny'
+(be sure to update your rules accordingly)
+
+===== Apply allow rules =====

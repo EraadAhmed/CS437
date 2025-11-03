@@ -1,0 +1,208 @@
+===== System context =====
+===== Date =====
++ date --iso-8601=seconds
+2025-10-27T12:31:34-05:00
+
+===== Hostname =====
++ hostnamectl
+ Static hostname: raspberrypi
+       Icon name: computer
+      Machine ID: 90850ae90b784f80acf88b9c16d3884c
+         Boot ID: 4ad58ddee4304a3b827d728bf7f4d644
+Operating System: Debian GNU/Linux 12 (bookworm)
+          Kernel: Linux 6.12.47+rpt-rpi-2712
+    Architecture: arm64
+
+===== Kernel =====
++ uname -a
+Linux raspberrypi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1~bookworm (2025-09-16) aarch64 GNU/Linux
+
+===== Distribution =====
++ lsb_release -a
+Distributor ID:	Debian
+Description:	Debian GNU/Linux 12 (bookworm)
+Release:	12
+Codename:	bookworm
+
+===== Network interfaces =====
++ ip -brief addr
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+eth0             DOWN           
+wlan0            UP             192.168.125.22/24 fe80::286d:90db:6c44:9811/64 
+
+===== Install Wireshark toolchain =====
+===== Add wireshark setuid preseed =====
++ bash -c echo 'wireshark-common wireshark-common/install-setuid boolean true' | sudo debconf-set-selections
+
+===== Install wireshark packages =====
++ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y wireshark tshark
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages were automatically installed and are no longer required:
+  libbasicusageenvironment1 libgroupsock8 liblivemedia77
+  linux-headers-6.12.25+rpt-common-rpi linux-headers-6.12.25+rpt-rpi-2712
+  linux-headers-6.12.25+rpt-rpi-v8 linux-image-6.12.25+rpt-rpi-2712
+  linux-image-6.12.25+rpt-rpi-v8 linux-kbuild-6.12.25+rpt python3-v4l2
+Use 'sudo apt autoremove' to remove them.
+The following additional packages will be installed:
+  libbcg729-0 libc-ares2 libqt5multimedia5 libqt5multimedia5-plugins
+  libqt5multimediagsttools5 libqt5multimediawidgets5 libsmi2ldbl
+  libwireshark-data libwireshark16 libwiretap13 libwsutil14 wireshark-common
+  wireshark-qt
+Suggested packages:
+  snmp-mibs-downloader geoipupdate geoip-database geoip-database-extra
+  libjs-leaflet libjs-leaflet.markercluster wireshark-doc
+The following NEW packages will be installed:
+  libbcg729-0 libc-ares2 libqt5multimedia5 libqt5multimedia5-plugins
+  libqt5multimediagsttools5 libqt5multimediawidgets5 libsmi2ldbl
+  libwireshark-data libwireshark16 libwiretap13 libwsutil14 tshark wireshark
+  wireshark-common wireshark-qt
+0 upgraded, 15 newly installed, 0 to remove and 43 not upgraded.
+Need to get 23.8 MB of archives.
+After this operation, 140 MB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian bookworm/main arm64 libbcg729-0 arm64 1.1.1-2 [32.1 kB]
+Get:2 http://deb.debian.org/debian bookworm/main arm64 libc-ares2 arm64 1.18.1-3 [99.2 kB]
+Get:3 http://deb.debian.org/debian bookworm/main arm64 libqt5multimedia5 arm64 5.15.8-2 [271 kB]
+Get:4 http://deb.debian.org/debian bookworm/main arm64 libqt5multimediawidgets5 arm64 5.15.8-2 [38.0 kB]
+Get:5 http://deb.debian.org/debian bookworm/main arm64 libqt5multimediagsttools5 arm64 5.15.8-2 [96.8 kB]
+Get:6 http://deb.debian.org/debian bookworm/main arm64 libqt5multimedia5-plugins arm64 5.15.8-2 [152 kB]
+Get:7 http://deb.debian.org/debian bookworm/main arm64 libsmi2ldbl arm64 0.4.8+dfsg2-16 [116 kB]
+Get:8 http://deb.debian.org/debian bookworm/main arm64 libwireshark-data all 4.0.17-0+deb12u1 [1,656 kB]
+Get:9 http://deb.debian.org/debian bookworm/main arm64 libwsutil14 arm64 4.0.17-0+deb12u1 [96.6 kB]
+Get:10 http://deb.debian.org/debian bookworm/main arm64 libwiretap13 arm64 4.0.17-0+deb12u1 [227 kB]
+Get:11 http://deb.debian.org/debian bookworm/main arm64 libwireshark16 arm64 4.0.17-0+deb12u1 [16.3 MB]
+Get:12 http://deb.debian.org/debian bookworm/main arm64 wireshark-common arm64 4.0.17-0+deb12u1 [462 kB]
+Get:13 http://deb.debian.org/debian bookworm/main arm64 tshark arm64 4.0.17-0+deb12u1 [152 kB]
+Get:14 http://deb.debian.org/debian bookworm/main arm64 wireshark-qt arm64 4.0.17-0+deb12u1 [4,015 kB]
+Get:15 http://deb.debian.org/debian bookworm/main arm64 wireshark arm64 4.0.17-0+deb12u1 [15.2 kB]
+Preconfiguring packages ...
+Fetched 23.8 MB in 1s (16.2 MB/s)
+Selecting previously unselected package libbcg729-0:arm64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 223507 files and directories currently installed.)
+Preparing to unpack .../00-libbcg729-0_1.1.1-2_arm64.deb ...
+Unpacking libbcg729-0:arm64 (1.1.1-2) ...
+Selecting previously unselected package libc-ares2:arm64.
+Preparing to unpack .../01-libc-ares2_1.18.1-3_arm64.deb ...
+Unpacking libc-ares2:arm64 (1.18.1-3) ...
+Selecting previously unselected package libqt5multimedia5:arm64.
+Preparing to unpack .../02-libqt5multimedia5_5.15.8-2_arm64.deb ...
+Unpacking libqt5multimedia5:arm64 (5.15.8-2) ...
+Selecting previously unselected package libqt5multimediawidgets5:arm64.
+Preparing to unpack .../03-libqt5multimediawidgets5_5.15.8-2_arm64.deb ...
+Unpacking libqt5multimediawidgets5:arm64 (5.15.8-2) ...
+Selecting previously unselected package libqt5multimediagsttools5:arm64.
+Preparing to unpack .../04-libqt5multimediagsttools5_5.15.8-2_arm64.deb ...
+Unpacking libqt5multimediagsttools5:arm64 (5.15.8-2) ...
+Selecting previously unselected package libqt5multimedia5-plugins:arm64.
+Preparing to unpack .../05-libqt5multimedia5-plugins_5.15.8-2_arm64.deb ...
+Unpacking libqt5multimedia5-plugins:arm64 (5.15.8-2) ...
+Selecting previously unselected package libsmi2ldbl:arm64.
+Preparing to unpack .../06-libsmi2ldbl_0.4.8+dfsg2-16_arm64.deb ...
+Unpacking libsmi2ldbl:arm64 (0.4.8+dfsg2-16) ...
+Selecting previously unselected package libwireshark-data.
+Preparing to unpack .../07-libwireshark-data_4.0.17-0+deb12u1_all.deb ...
+Unpacking libwireshark-data (4.0.17-0+deb12u1) ...
+Selecting previously unselected package libwsutil14:arm64.
+Preparing to unpack .../08-libwsutil14_4.0.17-0+deb12u1_arm64.deb ...
+Unpacking libwsutil14:arm64 (4.0.17-0+deb12u1) ...
+Selecting previously unselected package libwiretap13:arm64.
+Preparing to unpack .../09-libwiretap13_4.0.17-0+deb12u1_arm64.deb ...
+Unpacking libwiretap13:arm64 (4.0.17-0+deb12u1) ...
+Selecting previously unselected package libwireshark16:arm64.
+Preparing to unpack .../10-libwireshark16_4.0.17-0+deb12u1_arm64.deb ...
+Unpacking libwireshark16:arm64 (4.0.17-0+deb12u1) ...
+Selecting previously unselected package wireshark-common.
+Preparing to unpack .../11-wireshark-common_4.0.17-0+deb12u1_arm64.deb ...
+Unpacking wireshark-common (4.0.17-0+deb12u1) ...
+Selecting previously unselected package tshark.
+Preparing to unpack .../12-tshark_4.0.17-0+deb12u1_arm64.deb ...
+Unpacking tshark (4.0.17-0+deb12u1) ...
+Selecting previously unselected package wireshark-qt.
+Preparing to unpack .../13-wireshark-qt_4.0.17-0+deb12u1_arm64.deb ...
+Unpacking wireshark-qt (4.0.17-0+deb12u1) ...
+Selecting previously unselected package wireshark.
+Preparing to unpack .../14-wireshark_4.0.17-0+deb12u1_arm64.deb ...
+Unpacking wireshark (4.0.17-0+deb12u1) ...
+Setting up libbcg729-0:arm64 (1.1.1-2) ...
+Setting up libc-ares2:arm64 (1.18.1-3) ...
+Setting up libqt5multimedia5:arm64 (5.15.8-2) ...
+Setting up libsmi2ldbl:arm64 (0.4.8+dfsg2-16) ...
+Setting up libqt5multimediawidgets5:arm64 (5.15.8-2) ...
+Setting up libwsutil14:arm64 (4.0.17-0+deb12u1) ...
+Setting up libwireshark-data (4.0.17-0+deb12u1) ...
+Setting up libqt5multimediagsttools5:arm64 (5.15.8-2) ...
+Setting up libqt5multimedia5-plugins:arm64 (5.15.8-2) ...
+Setting up libwiretap13:arm64 (4.0.17-0+deb12u1) ...
+Setting up libwireshark16:arm64 (4.0.17-0+deb12u1) ...
+Setting up wireshark-common (4.0.17-0+deb12u1) ...
+Setting up tshark (4.0.17-0+deb12u1) ...
+Setting up wireshark-qt (4.0.17-0+deb12u1) ...
+Setting up wireshark (4.0.17-0+deb12u1) ...
+Processing triggers for libc-bin (2.36-9+rpt2+deb12u12) ...
+Processing triggers for man-db (2.11.2-2) ...
+Processing triggers for shared-mime-info (2.2-1) ...
+Processing triggers for mailcap (3.70+nmu1) ...
+Processing triggers for desktop-file-utils (0.26-1) ...
+Processing triggers for hicolor-icon-theme (0.17-2) ...
+Processing triggers for gnome-menus (3.36.0-1.1) ...
+
+===== Reconfigure dumpcap permissions =====
++ sudo dpkg-reconfigure -f noninteractive wireshark-common
+
+===== Ensure dumpcap executable =====
++ sudo chmod +x /usr/bin/dumpcap
+
+===== Add current user to wireshark group =====
++ sudo usermod -aG wireshark desi
+
+===== Available capture interfaces =====
+===== tshark interface list =====
++ sudo tshark -D
+1. wlan0
+2. any
+3. lo (Loopback)
+4. eth0
+5. bluetooth0
+6. bluetooth-monitor
+7. nflog
+8. nfqueue
+9. dbus-system
+10. dbus-session
+11. ciscodump (Cisco remote capture)
+12. dpauxmon (DisplayPort AUX channel monitor capture)
+13. randpkt (Random packet generator)
+14. sdjournal (systemd Journal Export)
+15. sshdump (SSH remote capture)
+16. udpdump (UDP Listener remote capture)
+17. wifidump (Wi-Fi remote capture)
+
+===== Packet capture session =====
+Capturing on interface wlan0 for 20 seconds
+PCAP destination: /home/desi/CS437/Lab3/part2_packet_outputs/capture_20251027-123134.pcapng
+tshark PID 8718
+===== Ping 8.8.8.8 =====
++ ping -c 6 8.8.8.8
+PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
+64 bytes from 8.8.8.8: icmp_seq=1 ttl=119 time=8.71 ms
+64 bytes from 8.8.8.8: icmp_seq=2 ttl=119 time=8.86 ms
+64 bytes from 8.8.8.8: icmp_seq=3 ttl=119 time=8.73 ms
+64 bytes from 8.8.8.8: icmp_seq=4 ttl=119 time=5.04 ms
+64 bytes from 8.8.8.8: icmp_seq=5 ttl=119 time=8.35 ms
+64 bytes from 8.8.8.8: icmp_seq=6 ttl=119 time=8.86 ms
+
+--- 8.8.8.8 ping statistics ---
+6 packets transmitted, 6 received, 0% packet loss, time 5008ms
+rtt min/avg/max/mdev = 5.044/8.092/8.863/1.374 ms
+
+===== HTTP HEAD https://example.com =====
++ curl -I --max-time 10 https://example.com
+HTTP/2 200 
+content-type: text/html
+etag: "bc2473a18e003bdb249eba5ce893033f:1760028122.592274"
+last-modified: Thu, 09 Oct 2025 16:42:02 GMT
+cache-control: max-age=86000
+date: Mon, 27 Oct 2025 17:32:00 GMT
+alt-svc: h3=":443"; ma=93600
+
+
