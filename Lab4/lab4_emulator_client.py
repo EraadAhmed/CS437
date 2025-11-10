@@ -12,11 +12,11 @@ device_st = 1
 device_end = 1661
 
 #Path to the dataset, modify this
-data_path = "vehicle.csv"
+data_path = "data/vehicle{0}.csv"
 
 #Path to your certificates, modify this
-certificate_formatter = "certificate.pem"
-key_formatter = "device.private.pem"
+certificate_formatter = "certs/IOTCAR{0}/Car{0}-cert.pem"
+key_formatter = "certs/IOTCAR{0}/Car{0}-priv.pem"
 
 
 class MQTTClient:
@@ -27,7 +27,7 @@ class MQTTClient:
         self.client = AWSIoTMQTTClient(self.device_id)
         #TODO 2: modify your broker address
         self.client.configureEndpoint("a1asbxpmh5fugn-ats.iot.us-east-2.amazonaws.com", 8883)
-        self.client.configureCredentials("./keys/AmazonRootCA1.pem", key, cert)
+        self.client.configureCredentials("AmazonRootCA1.pem", key, cert)
         self.client.configureOfflinePublishQueueing(-1)  # Infinite offline Publish queueing
         self.client.configureDrainingFrequency(2)  # Draining: 2 Hz
         self.client.configureConnectDisconnectTimeout(10)  # 10 sec
@@ -37,7 +37,7 @@ class MQTTClient:
 
     def customOnMessage(self,message):
         #TODO 3: fill in the function to show your received message
-        print("client {} received payload {} from topic {}".format(self.device_id, , ))
+        print("client {} received payload {} from topic {}".format(self.device_id, message ,"vehicle/emission/data" ))
 
 
     # Suback callback
@@ -54,7 +54,7 @@ class MQTTClient:
 
     def publish(self, topic="vehicle/emission/data"):
     # Load the vehicle's emission data
-        df = pd.read_csv(data_path.format(self.device_id))
+        df = pd.read_csv(data_path.format(self.device_id%5))
         for index, row in df.iterrows():
             # Create a JSON payload from the row data
             payload = json.dumps(row.to_dict())
@@ -64,7 +64,12 @@ class MQTTClient:
             self.client.publishAsync(topic, payload, 0, ackCallback=self.customPubackCallback)
             
             # Sleep to simulate real-time data publishing
-            
+    #subscribe
+    def subscribe(self, topic="vehicle/emission/data", qos=1):
+        def ack_callback(mid):
+            print(f"Subscription for {self.device_id} acknowledged with message id {mid}")
+        self.client.subscribeAsync(topic, qos, self.customOnMessage, ackCallback=ack_callback)
+       
 
 
 
