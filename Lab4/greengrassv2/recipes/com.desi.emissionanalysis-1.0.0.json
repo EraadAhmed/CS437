@@ -6,8 +6,8 @@
     "ComponentPublisher": "Serial Team Desi CS437",
     "ComponentConfiguration": {
         "DefaultConfiguration": {
-            "input_topic": "clients/CS437Thing/emission/data",
-            "output_topic": "clients/CS437Thing/emission/result",
+            "input_topic": "clients/+/emission/data",
+            "output_topic": "clients/+/emission/result",
             "vehicle_id": "CS437Car1",
             "max_threshold": 5000,
             "publish_interval_sec": 5

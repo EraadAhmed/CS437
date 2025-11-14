@@ -29,13 +29,25 @@ from awsgreengrasspubsubsdk.pubsub_client import AwsGreengrassPubSubSdkClient
 from pubsub_message_handlers.my_system_message_handler import MySystemMessageHandler
 from pubsub_message_handlers.my_sensor_message_handler import MySensorMessageHandler
 
+#ipc client
+from awsiot.greengrasscoreipc.clientv2 import GreengrassCoreIPCClientV2
+
 # Config the logger.
 log = logging.getLogger(__name__)
 logging.basicConfig(format="[%(name)s.%(funcName)s():%(lineno)d] - [%(levelname)s] - %(message)s", 
                     stream=sys.stdout, 
                     level=logging.DEBUG)
 
-ipc_client.subscribe_to_topic(topic="clients/+/emission", on_message=on_message)
+
+CLIENT_DEVICE_PUBLISH_TOPIC = 'clients/+/emission/data'
+CLIENT_DEVICE_SUBSCRIBE_TOPIC = 'clients/+/emission/result'
+def on_message(event):
+    try:
+        payload = event.binary_message.message.decode('utf-8')
+        log.info(f"Received: {payload}")
+        process_emission.lambda_handler([json.loads(payload)], None)
+    except Exception as e:
+        log.error(f"Error processing message: {e}")
 
 class MyAwsGreengrassV2Component():
 
@@ -97,10 +109,18 @@ class MyAwsGreengrassV2Component():
         log.info('Subscribing to user defined MQTT Protocols - Complete')
         
         log.info('Initilising AwsGreengrassV2 PubSub SDK Component Example Complete.')
+        self.ipc = GreengrassCoreIPCClientV2()
+        self.subscription_operation = self.ipc.subscribe_to_topic(
+            topic=CLIENT_DEVICE_PUBLISH_TOPIC,
+            on_stream_event= on_message
+        )
+        log.info(f"Subscribed to {CLIENT_DEVICE_PUBLISH_TOPIC}")
+
 
     ##################################################
     # Main service / process application logic
     ##################################################
+
     def service_loop(self):
         '''
         Holds the process up while handling event-driven PubSub triggers.
@@ -117,7 +137,7 @@ class MyAwsGreengrassV2Component():
                 sdk_format_msg = self.message_formatter.get_message(route=receive_route, message=my_message)
                 log.info('Publishing message: {}'.format(sdk_format_msg))
                 self.publish_message('ipc_mqtt', sdk_format_msg)
-            
+
             except Exception as err:
                 # Publish error to IPC and MQTT on default error topic. 
                 protocol = 'ipc_mqtt'

@@ -18,13 +18,16 @@ def lambda_handler(event, context):
     
     # TODO2: Calculate max CO2 emission
     maxCounter = max(float(record['vehicle_CO2']) for record in event)
-    vehicle_stat = event[-1]['vehicle_id']
+    vehicle_id = event[-1]['vehicle_id']
         
     # TODO3: Return the result
     client.publish(
-        topic="iot/Vehicle_" + vehicle_stat,
+        topic= f"clients/{vehicle_id}/emission/result",
         queueFullPolicy="AllOrException",
-        payload=json.dumps({"max_CO2": maxCounter}),
+        payload=json.dumps({
+            "vehicle_id": vehicle_id,
+            "max_CO2": maxCounter
+        })
     )
 
     return 'Success'
