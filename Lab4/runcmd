@@ -86,8 +86,7 @@ sudo /greengrass/v2/bin/greengrass-cli deployment create \
   --artifactDir ~/CS437/Lab4/greengrassv2/artifacts \
   --merge "com.desi.emissionanalysis=1.0.0"
   
-  sudo /greengrass/v2/bin/greengrass-cli deployment status \
-  -i 77861292-b1f9-4265-ad90-f3d1f5cc4d04
+
   
   
 

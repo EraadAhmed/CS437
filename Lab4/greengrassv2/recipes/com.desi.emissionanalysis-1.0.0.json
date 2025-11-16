@@ -21,10 +21,7 @@
         "os": "linux"
       },
       "Lifecycle": {
-        "Install": {
-            "Script": "python3 -m pip install greengrasssdk"
-          },
-        "run": "python3 -u {artifacts:path}/main.py"
+        "Run": "python3 -u {artifacts:path}/main.py"
       }
     },
     {
@@ -32,10 +29,7 @@
         "os": "windows"
       },
       "Lifecycle": {
-        "Install":{
-            "Script": "python3 -m pip install greengrasssdk"
-        },
-        "run": "py -3 -u {artifacts:path}/main.py"
+        "Run": "py -3 -u {artifacts:path}/main.py"
       }
     }
   ]

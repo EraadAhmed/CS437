@@ -1,8 +1,8 @@
 import json
 import logging
 import sys
-sys.path.insert(0, '/greengrass/v2/packages/artifacts/com.desi.emissionanalysis/1.0.0/python_modules')
-import greengrasssdk
+from awsiot.greengrasscoreipc.clientv2 import GreengrassCoreIPCClientV2
+
 
 
 # Logging
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 # SDK Client
-client = greengrasssdk.client("iot-data")
+ipc = GreengrassCoreIPCClientV2()
 
 def lambda_handler(event, context):
     # TODO1: Get your data
@@ -23,13 +23,18 @@ def lambda_handler(event, context):
     vehicle_id = event[-1]['vehicle_id']
         
     # TODO3: Return the result
-    client.publish(
-        topic= f"clients/{vehicle_id}/emission/result",
-        queueFullPolicy="AllOrException",
-        payload=json.dumps({
-            "vehicle_id": vehicle_id,
-            "max_CO2": maxCounter
-        })
+    payload = json.dumps({
+        "vehicle_id": vehicle_id,
+        "max_CO2": maxCounter
+    })
+
+    ipc.publish_to_topic(
+        topic=f"clients/{vehicle_id}/emission/result",
+        publish_message={
+            "json_message": {
+                "data": payload
+            }
+        }
     )
 
     return 'Success'
