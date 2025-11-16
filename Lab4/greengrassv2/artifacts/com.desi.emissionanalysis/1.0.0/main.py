@@ -109,12 +109,6 @@ class MyAwsGreengrassV2Component():
         log.info('Subscribing to user defined MQTT Protocols - Complete')
         
         log.info('Initilising AwsGreengrassV2 PubSub SDK Component Example Complete.')
-        self.ipc = GreengrassCoreIPCClientV2()
-        self.subscription_operation = self.ipc.subscribe_to_topic(
-            topic=CLIENT_DEVICE_PUBLISH_TOPIC,
-            on_stream_event= on_message
-        )
-        log.info(f"Subscribed to {CLIENT_DEVICE_PUBLISH_TOPIC}")
 
 
     ##################################################

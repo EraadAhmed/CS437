@@ -1,0 +1,96 @@
+#setting up greengrass core
+sed -i 's|{{config_dir}}|/greengrass/v2|g; s|{{nucleus_component}}|aws.greengrass.Nucleus|g' /greengrass/v2/config.yaml && sudo -E java -Droot="/greengrass/v2" -Dlog.store=FILE -jar ./GreengrassInstaller/lib/Greengrass.jar --init-config /greengrass/v2/config.yaml --component-default-user ggc_user:ggc_group --setup-system-service true
+
+#setting up basic_discovery
+python3 basic_discovery.py \
+  --thing_name CS437Thing \
+  --topic 'clients/CS437Thing/hello/world' \
+  --message 'Hello World!' \
+  --ca_file ./AmazonRootCA1.pem \
+  --cert ./CS437Thing-certificate.pem.crt \
+  --key ./CS437Thing-private.pem.key \
+  --region us-east-2 \
+  --verbosity Warn
+  
+  
+{
+#mqtt bridge topic mappimng
+  "mqttTopicMapping": {
+    "EmissionDataToGGComponent": {
+      "topic": "clients/+/emission/data",
+      "source": "LocalMqtt",
+      "target": "Pubsub"
+    },
+    "EmissionResultFromGGComponent": {
+      "topic": "clients/+/emission/result",
+      "source": "Pubsub",
+      "target": "LocalMqtt"
+    },
+    "EmissionDataToCloud": {
+      "topic": "clients/+/emission/data",
+      "source": "LocalMqtt",
+      "target": "IotCore"
+    }
+  }
+}
+
+#auth configuration 
+{
+  "reset": [],
+  "merge": {
+    "deviceGroups": {
+      "formatVersion": "2021-03-05",
+      "definitions": {
+        "MyDeviceGroup": {
+          "selectionRule": "thingName: IOTCar* OR thingName: CS437Thing",
+          "policyName": "MyClientDevicePolicy"
+        }
+      },
+      "policies": {
+        "MyClientDevicePolicy": {
+          "AllowConnect": {
+            "statementDescription": "Allow client devices to connect.",
+            "operations": [
+              "mqtt:connect"
+            ],
+            "resources": [
+              "*"
+            ]
+          },
+          "AllowPublish": {
+            "statementDescription": "Allow client devices to publish to all topics.",
+            "operations": [
+              "mqtt:publish"
+            ],
+            "resources": [
+              "clients/+/emission/data"
+            ]
+          },
+          "AllowSubscribe": {
+            "statementDescription": "Allow client devices to subscribe to all topics.",
+            "operations": [
+              "mqtt:subscribe"
+            ],
+            "resources": [
+              "clients/+/emission/result"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
+
+sudo /greengrass/v2/bin/greengrass-cli deployment create \
+  --recipeDir ~/CS437/Lab4/greengrassv2/recipes \
+  --artifactDir ~/CS437/Lab4/greengrassv2/artifacts \
+  --merge "com.desi.emissionanalysis=1.0.0"
+  
+  sudo /greengrass/v2/bin/greengrass-cli deployment status \
+  -i f982a839-6761-46c0-82df-039532f1f3fb
+  
+  
+
+  
+  
+  
