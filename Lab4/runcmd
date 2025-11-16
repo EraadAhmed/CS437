@@ -89,7 +89,8 @@ sudo /greengrass/v2/bin/greengrass-cli deployment create \
 
   
   
+sudo /greengrass/v2/bin/greengrass-cli deployment status -i 35c72f61-1c74-4af7-ae6a-a9cd10681fa5
 
-  
+
   
   
