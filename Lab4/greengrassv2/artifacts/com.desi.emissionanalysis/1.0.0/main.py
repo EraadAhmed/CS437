@@ -21,6 +21,7 @@ import logging
 import process_emission
 from datetime import datetime
 
+
 # AWS Greengrass PubSub Componnht SDK Imports.
 from awsgreengrasspubsubsdk.message_formatter import PubSubMessageFormatter
 from awsgreengrasspubsubsdk.pubsub_client import AwsGreengrassPubSubSdkClient
@@ -30,7 +31,7 @@ from pubsub_message_handlers.my_system_message_handler import MySystemMessageHan
 from pubsub_message_handlers.my_sensor_message_handler import MySensorMessageHandler
 
 #ipc client
-from awsiot.greengrasscoreipc.clientv2 import GreengrassCoreIPCClientV2
+# from awsiot.greengrasscoreipc.clientv2 import GreengrassCoreIPCClientV2
 
 # Config the logger.
 log = logging.getLogger(__name__)
@@ -153,8 +154,10 @@ class MyAwsGreengrassV2Component():
         '''
 
         # Publish error to IPC and MQTT on default error topic, will log locally as an error as well. 
-        err_msg = 'Received message to unknown route / message handler: {} - message: {}'.format(route, message)
-        self.publish_error(protocol, err_msg)
+        if "emission/data" in topic:
+            process_emission.lambda_handler([message], None)
+            return
+
 
 if __name__ == "__main__":
 

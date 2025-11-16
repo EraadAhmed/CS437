@@ -1,7 +1,9 @@
 import json
 import logging
 import sys
+sys.path.insert(0, '/greengrass/v2/packages/artifacts/com.desi.emissionanalysis/1.0.0/python_modules')
 import greengrasssdk
+
 
 # Logging
 logger = logging.getLogger(__name__)
