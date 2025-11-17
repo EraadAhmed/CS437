@@ -39,8 +39,9 @@ def run_all():
     print("\nWaiting for results...")
     
     for i in range(1, NUM_CARS + 1):
-        vid = f"IOTCar{i}"
-        clients[vid] = create_client(vid, i)
+        num = i+100 #may have issues with the first 5 cars
+        vid = f"IOTCar{num}"
+        clients[vid] = create_client(vid, num)
         print(f"Connected: {vid}")
     
     for i in range(1, NUM_CARS + 1):

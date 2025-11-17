@@ -96,4 +96,4 @@ sudo /greengrass/v2/bin/greengrass-cli deployment create \
 sudo /greengrass/v2/bin/greengrass-cli deployment create \
   --recipeDir ~/CS437/Lab4/greengrassv2/recipes \
   --artifactDir ~/CS437/Lab4/greengrassv2/artifacts \
-  --merge "com.desi.emissionanalysis=1.0.10"
+  --merge "com.desi.emissionanalysis=1.0.14"
