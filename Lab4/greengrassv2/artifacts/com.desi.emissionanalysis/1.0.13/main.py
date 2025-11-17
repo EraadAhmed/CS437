@@ -9,7 +9,7 @@ from awsiot.greengrasscoreipc.clientv2 import GreengrassCoreIPCClientV2
 logger = logging.getLogger(__name__)
 logging.basicConfig(format="[%(name)s.%(funcName)s():%(lineno)d] - [%(levelname)s] - %(message)s", 
                     stream=sys.stdout, 
-                    level=logging.DEBUG)
+                    level=logging.INFO)
 
 # IPC Client
 ipc_client = GreengrassCoreIPCClientV2()
@@ -34,8 +34,13 @@ def on_stream_closed():
 
 if __name__ == "__main__":
     try:
-        # Parse config from component recipe
-        config = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
+        # Hardcode config - no command line args
+        config = {
+            'input_topic': 'clients/+/emission/data',
+            'output_topic': 'clients/+/emission/result',
+            'vehicle_id': 'CS437Car1'
+        }
+        
         logger.info(f'Component Config: {config}')
         
         # Get subscribe topic from config

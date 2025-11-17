@@ -1,0 +1,39 @@
+{
+    "RecipeFormatVersion": "2020-01-25",
+    "ComponentName": "com.desi.emissionanalysis",
+    "ComponentVersion": "1.0.13",
+    "ComponentDescription": "Emission analysis component",
+    "ComponentPublisher": "desi",
+    "ComponentConfiguration": {
+        "DefaultConfiguration": {
+            "input_topic": "clients/+/emission/data",
+            "output_topic": "clients/+/emission/result",
+            "vehicle_id": "CS437Car1",
+            "accessControl": {
+                "aws.greengrass.ipc.pubsub": {
+                    "com.desi.emissionanalysis:pubsub:1": {
+                        "policyDescription": "Access to emission topics",
+                        "operations": [
+                            "aws.greengrass#SubscribeToTopic",
+                            "aws.greengrass#PublishToTopic"
+                        ],
+                        "resources": [
+                            "clients/*"
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    "Manifests": [
+        {
+            "Platform": {
+                "os": "linux"
+            },
+            "Lifecycle": {
+                "Install": "pip3 install awsiotsdk --break-system-packages",
+                "Run": "python3 -u {artifacts:path}/main.py"
+            }
+        }
+    ]
+}

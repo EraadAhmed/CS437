@@ -84,13 +84,16 @@ python3 basic_discovery.py \
 sudo /greengrass/v2/bin/greengrass-cli deployment create \
   --recipeDir ~/CS437/Lab4/greengrassv2/recipes \
   --artifactDir ~/CS437/Lab4/greengrassv2/artifacts \
-  --merge "com.desi.emissionanalysis=1.0.0"
+  --merge "com.desi.emissionanalysis=1.0.5"
   
 
   
   
-sudo /greengrass/v2/bin/greengrass-cli deployment status -i 35c72f61-1c74-4af7-ae6a-a9cd10681fa5
 
 
   
   
+sudo /greengrass/v2/bin/greengrass-cli deployment create \
+  --recipeDir ~/CS437/Lab4/greengrassv2/recipes \
+  --artifactDir ~/CS437/Lab4/greengrassv2/artifacts \
+  --merge "com.desi.emissionanalysis=1.0.10"
