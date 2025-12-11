@@ -1,3 +1,5 @@
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <SPI.h>
@@ -6,9 +8,8 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <Arduino.h>
-#include <time.h>  // Added for time functions
+#include <time.h> 
 #include "time.h"
-
 
 // ---------- Pins ----------
 #define SS_PIN     15
@@ -18,68 +19,31 @@
 #define MOSI_PIN   18
 #define LCD_SDA    47
 #define LCD_SCL    46
-#define BUZZER_PIN 41  // Passive buzzer pin (PWM capable recommended)
-#define LED_PIN 35
+#define BUZZER_PIN 41 
+#define LED_PIN    35
 
 // ---------- WiFi ----------
-const char* ssid     = "";
-const char* password = "";
-
+const char* ssid     = "Unit #301";
+const char* password = "exact change";
 
 // ---------- Web App ----------
 String Web_App_URL = "https://script.google.com/macros/s/AKfycbxrgvL0cvscMXECukZcuiTpO2j05yhu1w2jBNPCPJIJjkL7X2TMQKBeEIqcXBRR7Z5S/exec";
 
-
 // ---------- Time Settings ----------
 const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = -21600;  // Chicago is UTC-6 (Central Time)
-const int daylightOffset_sec = 3600; // Daylight saving time offset
+const long gmtOffset_sec = -21600;  
+const int daylightOffset_sec = 3600; 
 
-// Timer and sleep variables
+// Timer variables
 unsigned long lastActivityTime = 0;
-const unsigned long INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes in ms
+const unsigned long INACTIVITY_TIMEOUT = 10 * 60 * 1000; 
 bool isLowPowerMode = false;
 
 // ---------- Globals ----------
-LiquidCrystal_I2C lcd(0x27, 20, 4);
+LiquidCrystal_I2C lcd(0x27, 16, 2); 
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 char strbuf[32] = "";
-bool screenNeedsUpdate = true; // screen reset flag
-
-
-// ---------- Get Current Date and Time ----------
-String getCurrentDateTime() {
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    return "Time not available";
-  }
-
-  char dateTimeStr[32];
-  strftime(dateTimeStr, sizeof(dateTimeStr), "%m/%d/%Y %H:%M:%S", &timeinfo);
-  return String(dateTimeStr);
-}
-
-String getCurrentDate() {
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    return "Date not available";
-  }
-
-  char dateStr[16];
-  strftime(dateStr, sizeof(dateStr), "%m/%d/%Y", &timeinfo);
-  return String(dateStr);
-}
-
-String getCurrentTime() {
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    return "Time not available";
-  }
-
-  char timeStr[16];
-  strftime(timeStr, sizeof(timeStr), "%H:%M:%S", &timeinfo);
-  return String(timeStr);
-}
+bool screenNeedsUpdate = true; 
 
 
 // ---------- Helpers ----------
@@ -102,15 +66,6 @@ void byteArray_to_string(byte array[], unsigned int len, char buffer[]) {
   buffer[len * 2] = '\0';
 }
 
-// Compose a single LCD line that fits name and time on 20 columns
-String formatNameTimeLine(const String& name, const String& timeVal) {
-  const int lcdWidth = 20;
-  int available = lcdWidth - 1 - timeVal.length(); // space + time
-  if (available < 0) available = 0;
-  String trimmedName = name.substring(0, available);
-  return trimmedName + " " + timeVal;
-}
-
 bool readUID(String &uid) {
   if (!mfrc522.PICC_IsNewCardPresent()) return false;
   if (!mfrc522.PICC_ReadCardSerial())   return false;
@@ -121,275 +76,216 @@ bool readUID(String &uid) {
   return true;
 }
 
-
-// ---------- Passive Buzzer Tone ----------
 void buzzTone(uint16_t freq = 2000, uint16_t duration = 200) {
-  ledcAttach(BUZZER_PIN, freq, 8);  // Updated function name, 8-bit resolution
-  ledcWrite(BUZZER_PIN, 128);       // 50% duty cycle (128 out of 255)
+  ledcAttach(BUZZER_PIN, freq, 8);  
+  ledcWrite(BUZZER_PIN, 128);       
   delay(duration);
-  ledcWrite(BUZZER_PIN, 0);         // stop tone
-  ledcDetach(BUZZER_PIN);           // Updated function name
+  ledcWrite(BUZZER_PIN, 0);         
+  ledcDetach(BUZZER_PIN);           
 }
-
 
 // ---------- HTTP Attendance ----------
 void http_Attendance(const String& uid) {
   if (WiFi.status() != WL_CONNECTED) {
-    lcd.clear(); lcd.setCursor(0, 0); lcd.print("WiFi disconnected");
-    delay(1500); return;
+    lcd.clear(); lcd.setCursor(0, 0); lcd.print("WiFi Disconn.");
+    delay(2000); return;
   }
+
+  // Prevent Watchdog Crash
+  esp_task_wdt_reset();
 
   String url = Web_App_URL + "?sts=atc&uid=" + uid;
   HTTPClient http;
+  
+  http.setTimeout(25000); 
   http.begin(url.c_str());
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  
   int code = http.GET();
-  String payload = (code > 0) ? http.getString() : "";
+  String payload = "";
+
+  if (code > 0) {
+    payload = http.getString();
+  } else {
+    lcd.clear();
+    lcd.setCursor(0, 0); lcd.print("HTTP Err: "); lcd.print(code);
+    delay(3000);
+    http.end();
+    return;
+  }
   http.end();
 
+  Serial.println("Payload: " + payload);
+  esp_task_wdt_reset(); // Feed again after HTTP return
+
   String sts = getValue(payload, ',', 0);
-  if (sts != "OK") return;
+  sts.trim();
 
-  String info = getValue(payload, ',', 1);
-
-  if (info == "CI_Successful") {
-    String name = getValue(payload, ',', 2);
-    String date = getValue(payload, ',', 3);
-    String timeIn = getValue(payload, ',', 4);
-
-    String line0 = formatNameTimeLine(name, timeIn);
-    lcd.clear(); delay(100);
-    lcd.setCursor(0, 0); lcd.print(line0);
-    lcd.setCursor(0, 1); lcd.print("CHECKED IN");
-    lcd.setCursor(0, 2); lcd.print("Date: "); lcd.print(date);
-    lcd.setCursor(0, 3); lcd.print("                ");
-    delay(3000); lcd.clear();
-  }
-  else if (info == "CO_Successful") {
-    String name = getValue(payload, ',', 2);
-    String date = getValue(payload, ',', 3);
-    String timeIn = getValue(payload, ',', 4);
-    String timeOut = getValue(payload, ',', 5);
-
-    String line0 = formatNameTimeLine(name, timeOut);
-    lcd.clear(); delay(100);
-    lcd.setCursor(0, 0); lcd.print(line0);
-    lcd.setCursor(0, 1); lcd.print("CHECKED OUT");
-    lcd.setCursor(0, 2); lcd.print("Date: "); lcd.print(date);
-    lcd.setCursor(0, 3); lcd.print("In: "); lcd.print(timeIn);
-    delay(3000); lcd.clear();
-  }
-  else if (info == "CO_Updated") {
-    String name = getValue(payload, ',', 2);
-    String date = getValue(payload, ',', 3);
-    String timeIn = getValue(payload, ',', 4);
-    String timeOut = getValue(payload, ',', 5);
-
-    String line0 = formatNameTimeLine(name, timeOut);
-    lcd.clear(); delay(100);
-    lcd.setCursor(0, 0); lcd.print(line0);
-    lcd.setCursor(0, 1); lcd.print("CHECKOUT UPDATED");
-    lcd.setCursor(0, 2); lcd.print("Date: "); lcd.print(date);
-    lcd.setCursor(0, 3); lcd.print("In: "); lcd.print(timeIn);
-    delay(3000); lcd.clear();
-  }
-  else if (info == "atcErr01") {
+  if (sts != "OK") {
     lcd.clear();
-    lcd.setCursor(2, 0); lcd.print("UID not registered");
-    delay(2000); lcd.clear();
-  }
-}
-
-//---------------------DEEP SLEEP SETTER-------------------------
-void checkSleepTime() {
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    Serial.println("Failed to obtain time");
+    lcd.setCursor(0, 0); lcd.print("Server Err");
+    lcd.setCursor(0, 1); lcd.print(sts);
+    delay(2000);
     return;
   }
 
-  int currentHour = timeinfo.tm_hour; // 0-23
-  int currentMin  = timeinfo.tm_min;  // 0-59
-  int currentDay  = timeinfo.tm_wday; // 0=Sun, 1=Mon, ... 6=Sat
+  String info = getValue(payload, ',', 1);
+  info.trim();
 
-  // Target Wake Up Time: 7:45 AM
-  const long SECONDS_TO_745AM = 7 * 3600 + 45 * 60; // 27900 seconds
-  
-  // Calculate seconds currently passed today since midnight
-  long secondsPassedToday = (currentHour * 3600) + (currentMin * 60) + timeinfo.tm_sec;
-
-  // Determine if it is past 3:15 PM (15:15)
-  bool isPast315PM = (currentHour > 15) || (currentHour == 15 && currentMin >= 15);
-
-  // Determine if it is before 7:45 AM
-  bool isBefore745AM = (currentHour < 7) || (currentHour == 7 && currentMin < 45);
-
-  long secondsToSleep = 0;
-  bool shouldSleep = false;
-
-  // --- LOGIC: CHECK FOR WEEKEND OR NIGHT ---
-
-  // 1. Friday night after 3:15 PM -> Sleep until Monday 7:45 AM
-  if (currentDay == 5 && isPast315PM) {
-      Serial.println("Friday after 3:15PM. Sleeping until Monday 7:45 AM.");
-      long secondsLeftFri = (24 * 3600) - secondsPassedToday;
-      secondsToSleep = secondsLeftFri + (24 * 3600) + (24 * 3600) + SECONDS_TO_745AM;
-      shouldSleep = true;
-  }
-  // 2. Saturday -> Sleep until Monday 7:45 AM
-  else if (currentDay == 6) {
-      Serial.println("Saturday. Sleeping until Monday 7:45 AM.");
-      long secondsLeftSat = (24 * 3600) - secondsPassedToday;
-      secondsToSleep = secondsLeftSat + (24 * 3600) + SECONDS_TO_745AM;
-      shouldSleep = true;
-  }
-  // 3. Sunday -> Sleep until Monday 7:45 AM
-  else if (currentDay == 0) {
-      Serial.println("Sunday. Sleeping until Monday 7:45 AM.");
-      long secondsLeftSun = (24 * 3600) - secondsPassedToday;
-      secondsToSleep = secondsLeftSun + SECONDS_TO_745AM;
-      shouldSleep = true;
-  }
-  // 4. Weekday night (Mon-Thu after 3:15 PM) -> Sleep until Next Day 7:45 AM
-  else if (isPast315PM) {
-      Serial.println("Weekday after 3:15PM. Sleeping until 7:45 AM.");
-      long secondsLeftToday = (24 * 3600) - secondsPassedToday;
-      secondsToSleep = secondsLeftToday + SECONDS_TO_745AM;
-      shouldSleep = true;
-  }
-  // 5. Early morning (before 7:45 AM) -> Sleep until 7:45 AM today
-  else if (isBefore745AM) {
-      Serial.println("Too early. Sleeping until 7:45 AM.");
-      secondsToSleep = SECONDS_TO_745AM - secondsPassedToday;
-      shouldSleep = true;
-  }
-
-  // --- EXECUTE SLEEP ---
-  if (shouldSleep && secondsToSleep > 0) {
-    lcd.clear();
-    lcd.setCursor(0, 0); lcd.print("System Sleeping");
+  if (info == "CI_Successful" || info == "CO_Successful" || info == "CO_Updated") {
     
-    if (secondsToSleep > 86400) { 
-        lcd.setCursor(0, 1); lcd.print("See you Monday!");
+    String name = getValue(payload, ',', 2);
+    String date = getValue(payload, ',', 3);
+    String timeVal = "";
+    String line1Prefix = "";
+
+    if (info == "CI_Successful") {
+      line1Prefix = "CHKIN ";      
+      timeVal = getValue(payload, ',', 4); 
     } else {
-        lcd.setCursor(0, 1); lcd.print("Wake up @ 7:45 AM");
+      line1Prefix = "CHKOUT ";     
+      timeVal = getValue(payload, ',', 5); 
     }
-    delay(2000); 
 
-    // Shut down peripherals
-    mfrc522.PCD_AntennaOff();
-    mfrc522.PCD_SoftPowerDown();
-    lcd.noBacklight();
-    lcd.noDisplay();
-    digitalWrite(LED_PIN, LOW);
-    neopixelWrite(26, 0, 0, 0); // Ensure this matches your board pin
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
+    if (timeVal.length() == 0) timeVal = getValue(payload, ',', 4);
 
-    Serial.printf("Deep Sleeping for %ld seconds\n", secondsToSleep);
-    esp_sleep_enable_timer_wakeup(secondsToSleep * 1000000ULL);
-    Serial.flush();
-    esp_deep_sleep_start();
+    name.trim();
+    timeVal.trim();
+    date.trim();
+
+    int spaceLeft = 16 - line1Prefix.length(); 
+    if (name.length() > spaceLeft) {
+      name = name.substring(0, spaceLeft); 
+    }
+    String line1 = line1Prefix + name;
+    
+    String shortDate = date;
+    if (date.length() >= 5) {
+      shortDate = date.substring(0, 5);
+    }
+    
+    lcd.clear();
+    lcd.setCursor(0, 0); lcd.print(line1);
+    lcd.setCursor(0, 1); lcd.print(shortDate + " " + timeVal);
+    delay(3000); 
+    lcd.clear();
   }
+  else if (info == "atcErr01") {
+    lcd.clear();
+    lcd.setCursor(0, 0); lcd.print("ID Not Reg.");
+    delay(2000); lcd.clear();
+  }
+  else {
+    lcd.clear();
+    lcd.setCursor(0, 0); lcd.print("Unknown Resp");
+    delay(2000);
+  }
+  
+  esp_task_wdt_reset();
 }
 
-//--------------INACTIVITY SOFT Power Down -------------------
 void checkInactivity() {
   if (millis() - lastActivityTime > INACTIVITY_TIMEOUT) {
     if (!isLowPowerMode) {
-      Serial.println("Inactivity detected. Entering Low Power Mode.");
+      Serial.println("Entering Low Power Mode.");
       isLowPowerMode = true;
-      lcd.noBacklight(); // Dim screen
+      lcd.noBacklight(); 
       digitalWrite(LED_PIN, LOW); 
-      neopixelWrite(26, 0, 0, 0);
     }
-    
-    // Light sleep duty cycle: 1s
     esp_sleep_enable_timer_wakeup(1000 * 1000ULL); 
     esp_light_sleep_start(); 
   } else {
-    // We are ACTIVE
     if (isLowPowerMode) {
-      Serial.println("Activity detected! Waking up.");
+      Serial.println("Waking up.");
       isLowPowerMode = false;
       lcd.backlight(); 
-      lcd.setCursor(0, 0); lcd.print(getCurrentDate()); 
     }
   }
 }
 
-
-// ---------- Setup ----------
+// ---------- SETUP ----------
 void setup() {
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW); // start with LED off
-  neopixelWrite(26, 0, 0, 0); // (Red, Green, Blue) -> 0,0,0 is OFF
-  Serial.begin(115200); 
-  delay(200);
+  // 1. Configure Watchdog properly (Don't re-init, just add)
+  // This increases timeout to 40 seconds to prevent crash
+  esp_task_wdt_config_t twdt_config = {
+    .timeout_ms = 40000,
+    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
+    .trigger_panic = true
+  };
+  esp_task_wdt_init(&twdt_config); // Reconfigure existing WDT
+  esp_task_wdt_add(NULL);          // Add current thread (loop) to WDT
 
-  pinMode(BUZZER_PIN, OUTPUT);  // needed for passive buzzers
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW); 
+  
+  Serial.begin(115200); 
+  delay(1000); 
+
+  pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 
   Wire.begin(LCD_SDA, LCD_SCL);
   lcd.init(); 
   lcd.backlight(); 
   lcd.clear();
+  lcd.setCursor(0, 0); lcd.print("Booting...");
 
   SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN);
   mfrc522.PCD_Init();
   mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max); 
 
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(true);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm); // Low power to prevent brownout
+  WiFi.setSleep(false); 
   WiFi.begin(ssid, password);
+  
+  lcd.setCursor(0, 1); lcd.print("Connecting...");
+  
   uint32_t t0 = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 30000) {
     delay(250);
+    esp_task_wdt_reset(); // Feed watchdog while waiting
   }
 
-  // Initialize and configure time
+  if (WiFi.status() == WL_CONNECTED) {
+     lcd.setCursor(0, 1); lcd.print("WiFi OK!      ");
+     delay(1000);
+  } else {
+     lcd.setCursor(0, 1); lcd.print("WiFi Failed   ");
+     delay(2000);
+  }
+
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
-  lcd.setCursor(0, 0); lcd.print("ATTENDANCE MODE");
+  lcd.clear();
+  lcd.setCursor(0, 0); lcd.print("ATTENDANCE");
   delay(1000); 
   lcd.clear();
-  lastActivityTime = millis(); // Start timer
-
-  // ---------- UPDATED WATCHDOG INIT ----------
-  esp_task_wdt_config_t twdt_config = {
-    .timeout_ms = 10000,                                  // 10 seconds
-    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,      // monitor all cores' idle tasks
-    .trigger_panic = true
-  };
-
-  esp_task_wdt_init(&twdt_config);
-  esp_task_wdt_add(NULL);   // add current task to WDT
+  lastActivityTime = millis(); 
+  
+  Serial.println("Setup Complete.");
 }
 
-
-// ---------- Loop ----------
+// ---------- LOOP ----------
 void loop() {
-  esp_task_wdt_reset(); // resets watchdog timer
+  esp_task_wdt_reset(); // Feed watchdog
 
-  // checkSleepTime();   // Uncomment if you want deep sleep scheduling active
   checkInactivity(); 
 
-  // Only write the idle text ONE TIME after a scan finishes
   if (screenNeedsUpdate) {
     lcd.clear();
     lcd.setCursor(3, 0); lcd.print("ATTENDANCE");
-    lcd.setCursor(0, 2); lcd.print("Tap your card...");
-    screenNeedsUpdate = false; // Done! Don't write again until we say so.
+    lcd.setCursor(0, 1); lcd.print("Tap Card...");
+    screenNeedsUpdate = false; 
   }
 
   String uid;
+  // REMOVED delay(20) for snappier scanning
   if (!readUID(uid)) {
-    delay(20);
-    return;
+    return; 
   }
 
   // === CARD SCANNED ===
-  // 1. Reset Inactivity
   lastActivityTime = millis();
   if (isLowPowerMode) {
     isLowPowerMode = false;
@@ -399,16 +295,11 @@ void loop() {
   buzzTone();
   digitalWrite(LED_PIN, HIGH);
 
-  // 2. Show Processing Screen
   lcd.clear();
   lcd.setCursor(0, 0); lcd.print("Processing...");
 
-  // 3. Do the work
   http_Attendance(uid);
 
-  // 4. Cleanup
   digitalWrite(LED_PIN, LOW);
-
-  // 5. TRIGGER SCREEN REFRESH
   screenNeedsUpdate = true; 
 }
