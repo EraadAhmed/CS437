@@ -102,6 +102,15 @@ void byteArray_to_string(byte array[], unsigned int len, char buffer[]) {
   buffer[len * 2] = '\0';
 }
 
+// Compose a single LCD line that fits name and time on 20 columns
+String formatNameTimeLine(const String& name, const String& timeVal) {
+  const int lcdWidth = 20;
+  int available = lcdWidth - 1 - timeVal.length(); // space + time
+  if (available < 0) available = 0;
+  String trimmedName = name.substring(0, available);
+  return trimmedName + " " + timeVal;
+}
+
 bool readUID(String &uid) {
   if (!mfrc522.PICC_IsNewCardPresent()) return false;
   if (!mfrc522.PICC_ReadCardSerial())   return false;
@@ -148,17 +157,12 @@ void http_Attendance(const String& uid) {
     String date = getValue(payload, ',', 3);
     String timeIn = getValue(payload, ',', 4);
 
-    int pos = 0, L = name.length();
-    if (L > 20) name = name.substring(0, 20);
-    if (L > 0 && L <= 20) {
-      pos = ((20 / 2) - 1) - map(L, 1, 20, 0, (20 / 2) - 1);
-    }
-
+    String line0 = formatNameTimeLine(name, timeIn);
     lcd.clear(); delay(100);
-    lcd.setCursor(pos, 0); lcd.print(name);
+    lcd.setCursor(0, 0); lcd.print(line0);
     lcd.setCursor(0, 1); lcd.print("CHECKED IN");
     lcd.setCursor(0, 2); lcd.print("Date: "); lcd.print(date);
-    lcd.setCursor(0, 3); lcd.print("Time: "); lcd.print(timeIn);
+    lcd.setCursor(0, 3); lcd.print("                ");
     delay(3000); lcd.clear();
   }
   else if (info == "CO_Successful") {
@@ -167,17 +171,12 @@ void http_Attendance(const String& uid) {
     String timeIn = getValue(payload, ',', 4);
     String timeOut = getValue(payload, ',', 5);
 
-    int pos = 0, L = name.length();
-    if (L > 20) name = name.substring(0, 20);
-    if (L > 0 && L <= 20) {
-      pos = ((20 / 2) - 1) - map(L, 1, 20, 0, (20 / 2) - 1);
-    }
-
+    String line0 = formatNameTimeLine(name, timeOut);
     lcd.clear(); delay(100);
-    lcd.setCursor(pos, 0); lcd.print(name);
+    lcd.setCursor(0, 0); lcd.print(line0);
     lcd.setCursor(0, 1); lcd.print("CHECKED OUT");
-    lcd.setCursor(0, 2); lcd.print("In: "); lcd.print(timeIn);
-    lcd.setCursor(0, 3); lcd.print("Out: "); lcd.print(timeOut);
+    lcd.setCursor(0, 2); lcd.print("Date: "); lcd.print(date);
+    lcd.setCursor(0, 3); lcd.print("In: "); lcd.print(timeIn);
     delay(3000); lcd.clear();
   }
   else if (info == "CO_Updated") {
@@ -186,17 +185,12 @@ void http_Attendance(const String& uid) {
     String timeIn = getValue(payload, ',', 4);
     String timeOut = getValue(payload, ',', 5);
 
-    int pos = 0, L = name.length();
-    if (L > 20) name = name.substring(0, 20);
-    if (L > 0 && L <= 20) {
-      pos = ((20 / 2) - 1) - map(L, 1, 20, 0, (20 / 2) - 1);
-    }
-
+    String line0 = formatNameTimeLine(name, timeOut);
     lcd.clear(); delay(100);
-    lcd.setCursor(pos, 0); lcd.print(name);
+    lcd.setCursor(0, 0); lcd.print(line0);
     lcd.setCursor(0, 1); lcd.print("CHECKOUT UPDATED");
-    lcd.setCursor(0, 2); lcd.print("In: "); lcd.print(timeIn);
-    lcd.setCursor(0, 3); lcd.print("Out: "); lcd.print(timeOut);
+    lcd.setCursor(0, 2); lcd.print("Date: "); lcd.print(date);
+    lcd.setCursor(0, 3); lcd.print("In: "); lcd.print(timeIn);
     delay(3000); lcd.clear();
   }
   else if (info == "atcErr01") {
