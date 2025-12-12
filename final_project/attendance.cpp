@@ -31,7 +31,7 @@ String Web_App_URL = "https://script.google.com/macros/s/AKfycbxrgvL0cvscMXECukZ
 
 // ---------- Time Settings ----------
 const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = -21600;  
+const long gmtOffset_sec = -21600;   
 const int daylightOffset_sec = 3600; 
 
 // Timer variables
@@ -183,7 +183,100 @@ void http_Attendance(const String& uid) {
   
   esp_task_wdt_reset();
 }
+//---------------------DEEP SLEEP SETTER-------------------------
+void checkSleepTime() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Failed to obtain time");
+    return;
+  }
 
+  int currentHour = timeinfo.tm_hour; // 0-23
+  int currentMin  = timeinfo.tm_min;  // 0-59
+  int currentDay  = timeinfo.tm_wday; // 0=Sun, 1=Mon, ... 6=Sat
+
+  // Target Wake Up Time: 7:45 AM
+  const long SECONDS_TO_745AM = 7 * 3600 + 45 * 60; // 27900 seconds
+  
+  // Calculate seconds currently passed today since midnight
+  long secondsPassedToday = (currentHour * 3600) + (currentMin * 60) + timeinfo.tm_sec;
+
+  // Determine if it is past 3:15 PM (15:15)
+  bool isPast315PM = (currentHour > 15) || (currentHour == 15 && currentMin >= 15);
+
+  // Determine if it is before 7:45 AM
+  bool isBefore745AM = (currentHour < 7) || (currentHour == 7 && currentMin < 45);
+
+  long secondsToSleep = 0;
+  bool shouldSleep = false;
+
+  // --- LOGIC: CHECK FOR WEEKEND OR NIGHT ---
+
+  // 1. Friday night after 3:15 PM -> Sleep until Monday 7:45 AM
+  if (currentDay == 5 && isPast315PM) {
+      Serial.println("Friday after 3:15PM. Sleeping until Monday 7:45 AM.");
+      long secondsLeftFri = (24 * 3600) - secondsPassedToday;
+      secondsToSleep = secondsLeftFri + (24 * 3600) + (24 * 3600) + SECONDS_TO_745AM;
+      shouldSleep = true;
+  }
+  // 2. Saturday -> Sleep until Monday 7:45 AM
+  else if (currentDay == 6) {
+      Serial.println("Saturday. Sleeping until Monday 7:45 AM.");
+      long secondsLeftSat = (24 * 3600) - secondsPassedToday;
+      secondsToSleep = secondsLeftSat + (24 * 3600) + SECONDS_TO_745AM;
+      shouldSleep = true;
+  }
+  // 3. Sunday -> Sleep until Monday 7:45 AM
+  else if (currentDay == 0) {
+      Serial.println("Sunday. Sleeping until Monday 7:45 AM.");
+      long secondsLeftSun = (24 * 3600) - secondsPassedToday;
+      secondsToSleep = secondsLeftSun + SECONDS_TO_745AM;
+      shouldSleep = true;
+  }
+  // 4. Weekday night (Mon-Thu after 3:15 PM) -> Sleep until Next Day 7:45 AM
+  else if (isPast315PM) {
+      Serial.println("Weekday after 3:15PM. Sleeping until 7:45 AM.");
+      long secondsLeftToday = (24 * 3600) - secondsPassedToday;
+      secondsToSleep = secondsLeftToday + SECONDS_TO_745AM;
+      shouldSleep = true;
+  }
+  // 5. Early morning (before 7:45 AM) -> Sleep until 7:45 AM today
+  else if (isBefore745AM) {
+      Serial.println("Too early. Sleeping until 7:45 AM.");
+      secondsToSleep = SECONDS_TO_745AM - secondsPassedToday;
+      shouldSleep = true;
+  }
+
+  // --- EXECUTE SLEEP ---
+  if (shouldSleep && secondsToSleep > 0) {
+    lcd.clear();
+    lcd.setCursor(0, 0); lcd.print("System Sleeping");
+    
+    if (secondsToSleep > 86400) { 
+        lcd.setCursor(0, 1); lcd.print("See you Monday!");
+    } else {
+        lcd.setCursor(0, 1); lcd.print("Wake up @ 7:45 AM");
+    }
+    delay(2000); 
+
+    // Shut down peripherals
+    mfrc522.PCD_AntennaOff();
+    mfrc522.PCD_SoftPowerDown();
+    lcd.noBacklight();
+    lcd.noDisplay();
+    digitalWrite(LED_PIN, LOW);
+    neopixelWrite(26, 0, 0, 0); // Ensure this matches your board pin
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+
+    Serial.printf("Deep Sleeping for %ld seconds\n", secondsToSleep);
+    esp_sleep_enable_timer_wakeup(secondsToSleep * 1000000ULL);
+    Serial.flush();
+    esp_deep_sleep_start();
+  }
+}
+
+//--------------INACTIVITY SOFT Power Down -------------------
 void checkInactivity() {
   if (millis() - lastActivityTime > INACTIVITY_TIMEOUT) {
     if (!isLowPowerMode) {
@@ -192,7 +285,7 @@ void checkInactivity() {
       lcd.noBacklight(); 
       digitalWrite(LED_PIN, LOW); 
     }
-    esp_sleep_enable_timer_wakeup(1000 * 1000ULL); 
+    esp_sleep_enable_timer_wakeup(200 * 1000ULL); 
     esp_light_sleep_start(); 
   } else {
     if (isLowPowerMode) {
@@ -206,9 +299,9 @@ void checkInactivity() {
 // ---------- SETUP ----------
 void setup() {
   // 1. Configure Watchdog properly (Don't re-init, just add)
-  // This increases timeout to 40 seconds to prevent crash
+  // This increases timeout to 20 seconds to prevent crash
   esp_task_wdt_config_t twdt_config = {
-    .timeout_ms = 40000,
+    .timeout_ms = 20000,
     .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
     .trigger_panic = true
   };
@@ -269,7 +362,7 @@ void setup() {
 // ---------- LOOP ----------
 void loop() {
   esp_task_wdt_reset(); // Feed watchdog
-
+  checkSleepTime();
   checkInactivity(); 
 
   if (screenNeedsUpdate) {
